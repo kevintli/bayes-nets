@@ -3,7 +3,19 @@ import random
 from scipy.stats import multivariate_normal
 
 class DiscreteDistribution:
+    """
+    A discrete, tabular probability distribution.
+    All possible values and their corresponding probabilties must be manually specified.
+    """
     def __init__(self, probabilities, needs_normalize=False):
+        """
+        Params:
+        - probabilities (dict): keys are arbitrary objects representing the values this RV can take on,
+            and values are their corresponding probabilities
+        
+        - needs_normalize (bool): if set to True, the values in the probabilities dictionary will be 
+            normalized to ensure they sum to 1.
+        """
         self.probs = probabilities
         if needs_normalize:
             self.normalize()
@@ -16,11 +28,17 @@ class DiscreteDistribution:
             self.probs[key] /= total
 
     def get_probability(self, value):
+        """
+        Returns the probability corresponding to a particular value.
+        """
         if value not in self.probs:
             raise Exception(f"[DiscreteDistribution] Attempted to get probability of nonexistent value {value}")
         return self.probs[value]
 
     def sample(self):
+        """
+        Returns a single sample from the distribution.
+        """
         z = random.random() * self._total()
         curr = 0
         for key, val in self.probs.items():
@@ -39,6 +57,9 @@ class DiscreteDistribution:
 
 
 class GaussianDistribution:
+    """
+    A (possibly multivariate) Gaussian distribution, represented by a mean and covariance matrix.
+    """
     def __init__(self, mean, cov):
         self.mean = mean
         self.cov = cov

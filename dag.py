@@ -39,17 +39,17 @@ class DirectedAcyclicGraph:
         """
         Adds a directed edge from u -> v.
         """
-        if u < self.V() and v < self.V():
+        if u in self.vertices and v in self.vertices:
             self.vertices[u].add(v)
 
     def remove_edge(self, u, v):
         """
         Removes the directed edge u -> v.
         """
-        if u < self.V() and v < self.V():
+        if u in self.vertices and v in self.vertices:
             self.vertices[u].remove(v)
 
-    def topo_sort(self):
+    def topological_order(self):
         """
         Returns a list of vertex names for this graph in topological order
             (i.e. ancestors must come before their descendants).

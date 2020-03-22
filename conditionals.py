@@ -5,16 +5,16 @@ class CPD:
     We should be able to query for probabilties and sample from the distribution
         conditioned on a set of evidence variables.
     """
-    def get_probability(self, x, *evidence):
+    def get_probability(self, x, evidence):
         """
         Returns P(X=x|e_1, e_2, ..., e_n)
 
         x          -  any object (e.g. an integer, string, or tuple of values)
-        *evidence  -  values for each evidence variable
+        evidence   -  tuple of values for each evidence variable
         """
         raise NotImplementedError
 
-    def sample(self, *evidence):
+    def sample(self, evidence):
         """
         Returns a value X sampled from the distribution P(X|*evidence)
         """
@@ -49,7 +49,9 @@ class TabularCPD(CPD):
 
         """
         CPD.__init__(self)
+        self._assert_valid_conditionals(probabilities)
         self.conditional_probs = probabilities
+        self.num_evidence_vars = self._get_dim(list(probabilities.keys())[0])
 
     def get_probability(self, x, evidence):
         self._assert_valid_evidence(evidence)
@@ -58,6 +60,14 @@ class TabularCPD(CPD):
     def sample(self, evidence):
         self._assert_valid_evidence(evidence)
         return self.conditional_probs[evidence].sample()
+
+    def _assert_valid_conditionals(self, probs):
+        assert probs, "[TabularCPD] Cannot create an empty distribution"
+        assert [self._get_dim(key) for key in probs].count(self._get_dim(list(probs.keys())[0])) == len(probs), \
+            "[TabularCPD] Must condition on the same number of evidence variables for each case"
+
+    def _get_dim(self, val):
+        return 1 if not isinstance(val, tuple) else len(val)
 
     def _assert_valid_evidence(self, evidence):
         if evidence not in self.conditional_probs:
