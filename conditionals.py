@@ -1,4 +1,10 @@
 class CPD:
+    """
+    Base class for a conditional probability distribution.
+
+    We should be able to query for probabilties and sample from the distribution
+        conditioned on a set of evidence variables.
+    """
     def get_probability(self, x, *evidence):
         """
         Returns P(X=x|e_1, e_2, ..., e_n)
@@ -16,21 +22,31 @@ class CPD:
 
 
 class TabularCPD(CPD):
+    """
+    Represents a tabular CPD, where we manually specify a probability distribution
+        for each possible combination of evidence variables.
+
+    Example:
+        t = TabularCPD({
+            (0, 0): DiscreteDistribution({0: 0.5, 1: 0.5}),  # Represents P(X | e_1=0, e_2=0)
+            (0, 1): DiscreteDistribution({0: 0.2, 1: 0.8}),  # Represents P(X | e_1=0, e_2=1)
+            (1, 0): DiscreteDistribution({0: 0.9, 1: 0.1}),  # Represents P(X | e_1=1, e_2=0)
+            (1, 1): DiscreteDistribution({0: 0.2, 1: 0.8})   # Represents P(X | e_1=1, e_2=1)
+        })
+
+        t.get_probability(0, (0, 1))  # => 0.2
+        t.sample((1, 1))              # Samples from P(X | e_1=1, e_2=1)
+
+    Only the evidence variable values need to be enumerated; the resulting conditional for a particular
+        set of evidence values can be set to any arbitrary distribution. For example, we can specify P(X|A, B) 
+        where A, B take on discrete values listed in the table, but the resulting X|A, B distributions are Gaussian.
+    """
+
     def __init__(self, probabilities):
         """
         probabilities (dict): each key-value pair maps a tuple of numerical quantities for e_1, ..., e_n 
                                 to a Distribution object representing P(X | e_1, ..., e_n)
 
-        Example:
-        t = TabularCPD({
-            (0, 0): DiscreteDistribution({0: 0.5, 1: 0.5}),  # Represents P(X | e_1=0, e_2=0)
-            (0, 1): DiscreteDistribution({0: 0.2, 1: 0.8}),  # Represents P(X | e_1=0, e_2=1)
-            (1, 1): DiscreteDistribution({0: 0.2, 1: 0.8}),
-            (1, 0): DiscreteDistribution({0: 0.9, 1: 0.1})
-        })
-
-        t.get_probability(0, (0, 1))  # => 0.2
-        t.sample((1, 1))              # Samples from P(X | e_1=1, e_2=1)
         """
         CPD.__init__(self)
         self.conditional_probs = probabilities
@@ -49,10 +65,13 @@ class TabularCPD(CPD):
 
 
 class GaussianCPD(CPD):
+    """
+    Represents a Gaussian CPD, where we specify some parameterized function that maps values for evidence variables
+        to the mean and covariance of a Gaussian.
+    """
     def __init__(self, mean_cov_fn):
         """
         mean_cov_fn: a function that takes in values for evidence variables and returns a GaussianDistribution object
-                        (which has a mean and covariance matrix)
 
         Example:
         g = GaussianCPD(self, lambda z: GaussianDistribution(z, 1))  # P(X|z) is a unit Gaussian centered at z
