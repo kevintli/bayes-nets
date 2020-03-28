@@ -1,3 +1,7 @@
+from collections import Counter
+import numpy as np
+from torch_utils import learn_linear_gaussian_params
+
 class CPD:
     """
     Base class for a conditional probability distribution.
@@ -9,14 +13,19 @@ class CPD:
         """
         Returns P(X=x|e_1, e_2, ..., e_n)
 
-        x          -  any object (e.g. an integer, string, or tuple of values)
-        evidence   -  tuple of values for each evidence variable
+        Params
+        - x                  any object (e.g. an integer, string, or tuple of values)
+        - evidence (tuple)   values for each evidence variable
         """
         raise NotImplementedError
 
-    def sample(self, evidence):
+    def sample(self, evidence, num_samples=1):
         """
-        Returns a value X sampled from the distribution P(X|*evidence)
+        Returns an array of `num_samples` samples from the distribution P(X|evidence).
+
+        Params
+        - evidence (tuple)      values for each evidence variable
+        - num_samples (int)     number of samples to return
         """
         raise NotImplementedError
 
@@ -54,12 +63,28 @@ class TabularCPD(CPD):
         self.num_evidence_vars = self._get_dim(list(probabilities.keys())[0])
 
     def get_probability(self, x, evidence):
+        """
+        Returns P(x|evidence), assuming it exists in the table.
+        """
         self._assert_valid_evidence(evidence)
         return self.conditional_probs[evidence].get_probability(x)
 
-    def sample(self, evidence):
+    def sample(self, evidence, num_samples=1):
         self._assert_valid_evidence(evidence)
-        return self.conditional_probs[evidence].sample()
+        return self.conditional_probs[evidence].sample(num_samples)
+
+    @staticmethod
+    def fit_to_data(data, x_vals=None):
+        """
+        Returns a TabularCPD object whose probabilities are set according to the frequencies of
+        each value in the provided dataset.
+
+        Params
+        - data   (np.array):        A numpy array with data points of any type (must be hashable)
+        - x_vals (list, optional):  All possible values this distribution can take on. If specified,
+                                     any other values in the dataset will be ignored.
+        """
+        pass
 
     def _assert_valid_conditionals(self, probs):
         assert probs, "[TabularCPD] Cannot create an empty distribution"
@@ -81,7 +106,8 @@ class GaussianCPD(CPD):
     """
     def __init__(self, mean_cov_fn):
         """
-        mean_cov_fn: a function that takes in values for evidence variables and returns a GaussianDistribution object
+        Params
+        - mean_cov_fn: a function that takes in values for evidence variables and returns a GaussianDistribution object
 
         Example:
         g = GaussianCPD(self, lambda z: GaussianDistribution(z, 1))  # P(X|z) is a unit Gaussian centered at z
@@ -96,5 +122,19 @@ class GaussianCPD(CPD):
     def get_probability(self, x, evidence):
         return self.mean_cov_fn(evidence).get_probability(x)
 
-    def sample(self, evidence, shape=None):
-        return self.mean_cov_fn(evidence).sample(shape)
+    def sample(self, evidence, num_samples=1):
+        return self.mean_cov_fn(evidence).sample(num_samples)
+
+    @staticmethod
+    def fit_linear_to_data(evidence_vars, data):
+        """
+        Returns a GaussianCPD object whose mean_cov_fn has parameters learned using MLE on the provided data.
+
+
+        Params
+        - evidence: A tuple of evidence variable data, where the ith item is a shape (N, E_i) batch of evidence
+                     data for the ith evidence variable
+        - data:     A shape (N, D) batch of data sampled from the conditional distribution
+        """
+        mean_cov_fn = learn_linear_gaussian_params(evidence_vars, data)
+        return GaussianCPD(mean_cov_fn)

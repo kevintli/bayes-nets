@@ -1,4 +1,4 @@
-from typing import Dict
+import numpy as np
 import random
 from scipy.stats import multivariate_normal
 
@@ -23,7 +23,12 @@ class DiscreteDistribution:
             assert self._total() == 1, "DiscreteDistribution must have probabilities that sum to 1"
 
     def normalize(self):
+        """
+        Normalizes the distribution so that probabilities sum to 1
+        """
         total = self._total()
+        assert total != 0, "Cannot normalize a DiscreteDistribution with zero total probability"
+
         for key in self.probs:
             self.probs[key] /= total
 
@@ -35,10 +40,15 @@ class DiscreteDistribution:
             raise Exception(f"[DiscreteDistribution] Attempted to get probability of nonexistent value {value}")
         return self.probs[value]
 
-    def sample(self):
+    def sample(self, num_samples=1):
         """
-        Returns a single sample from the distribution.
+        Returns `num_samples` samples from the distribution as a numpy array.
         """
+        if num_samples > 1:
+            samples = np.random.choice(list(self.probs.keys()), num_samples, p=list(self.probs.values()))
+            return samples
+
+        # Single sample implementation (more efficient)
         z = random.random() * self._total()
         curr = 0
         for key, val in self.probs.items():
@@ -68,8 +78,11 @@ class GaussianDistribution:
     def get_probability(self, value):
         return self.rv.pdf(value)
 
-    def sample(self, shape=None):
-        return self.rv.rvs(shape)
+    def sample(self, num_samples=1):
+        samples = self.rv.rvs(num_samples)
+        if len(samples.shape) < 1:
+            return samples.reshape((1))
+        return samples
     
     def __str__(self):
         return f"GaussianDistribution(mean: {self.mean}, cov: {self.cov})"

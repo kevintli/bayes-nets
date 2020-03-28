@@ -1,4 +1,5 @@
 from dag import DirectedAcyclicGraph
+import numpy as np
 
 class BNNode:
     """
@@ -114,14 +115,17 @@ class BayesNet(DirectedAcyclicGraph):
             else:
                 node = self.get_node(node_name)
                 evidence = tuple([evidence_dict[parent_name] for parent_name in node.parents])
-                if len(evidence) == 1:
-                    evidence = evidence[0]
                 sample = node.cpd.sample(evidence) if evidence is not () else node.cpd.sample()
                 results.append(sample)
                 evidence_dict[node_name] = sample
         
         return tuple(results)
 
+    def sample_batch(self, num_samples=1, evidence_dict=None):
+        samples = []
+        for _ in range(num_samples):
+            samples.append(self.sample(evidence_dict))
+        return np.array(samples)
     
     def _assert_build_done(self):
         assert self.build_done, "[BayesNet] Must call build() before running sampling, parameter estimation, or inference!"

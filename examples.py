@@ -98,7 +98,9 @@ def create_gaussian_example():
 
     bn = BayesNet(["A", "B"])
     bn.set_prior("A", GaussianDistribution(5, 1))
-    bn.set_parents("B", ["A"], GaussianCPD(lambda a: GaussianDistribution((a, 2*a), np.array([[1, 0], [0, 4]]))))
+    bn.set_parents("B", ["A"], GaussianCPD(lambda a: 
+        GaussianDistribution((a, 2*a), 
+            np.array([[1, 0], [0, 4]]))))
 
     bn.build()
     return bn
