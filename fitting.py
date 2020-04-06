@@ -70,7 +70,7 @@ class NeuralNetGaussianConditionalFn(nn.Module):
     pass
 
 
-def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=40, batch_size=16):
+def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=30, batch_size=16):
     """
     Given evidence and data, uses MLE to learn the optimal parameters for cond_fn, 
      which maps evidence values to a GaussianDistribution object (with a mean and covariance). 
@@ -93,17 +93,22 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=40,
     optimizer = optim.Adam(cond_fn_approx.parameters())
 
     for epoch in range(num_epochs):
+        total_loss = 0
+
         for i, (evidence, data) in enumerate(trainloader):
             optimizer.zero_grad()
 
             output_distr = cond_fn_approx(evidence)
             loss = cond_fn_approx.loss(data, output_distr)
+            total_loss += loss.item()
             loss.backward()
             optimizer.step()
         
-        print(f"\nEpoch {epoch}; Loss: {loss.item()}")
+        print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}") # Avg loss per batch
         print(cond_fn_approx.weights[0].weight)
         print(cond_fn_approx.cov)
+        epoch += 1
+        total_loss = 0
 
     def cond_fn(evidence):
         with torch.no_grad():
