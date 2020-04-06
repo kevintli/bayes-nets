@@ -2,6 +2,10 @@ import numpy as np
 import random
 from scipy.stats import multivariate_normal
 
+import torch
+from torch.distributions.normal import Normal
+from torch.distributions.multivariate_normal import MultivariateNormal
+
 class DiscreteDistribution:
     """
     A discrete, tabular probability distribution.
@@ -70,19 +74,56 @@ class GaussianDistribution:
     """
     A (possibly multivariate) Gaussian distribution, represented by a mean and covariance matrix.
     """
-    def __init__(self, mean, cov):
+    def __init__(self, mean, cov_or_sd):
+        """
+        Params
+            mean (int|float|torch.tensor)      -  Mean of the distribution
+            cov_or_sd (int|float|torch.tensor) -  Std dev (if number) or covariance matrix (if tensor)
+        """
         self.mean = mean
-        self.cov = cov
-        self.rv = multivariate_normal(mean=mean, cov=cov)
+        self.cov = cov_or_sd
+
+        if isinstance(cov_or_sd, int) or isinstance(cov_or_sd, float):
+            self.rv = Normal(torch.tensor([float(mean)]), torch.tensor([float(cov_or_sd)]))
+        elif len(cov_or_sd.shape) == 0:
+            self.rv = Normal(mean.float(), cov_or_sd.float())
+        else:
+            self.rv = MultivariateNormal(mean, cov_or_sd)
 
     def get_probability(self, value):
-        return self.rv.pdf(value)
+        return np.e ** self.rv.log_prob(value)
+
+    def get_log_prob(self, value):
+        return self.rv.log_prob(value)
 
     def sample(self, num_samples=1):
-        samples = self.rv.rvs(num_samples)
-        if len(samples.shape) < 1:
-            return samples.reshape((1))
-        return samples
+        """
+        Params
+        - num_samples (int): The number of samples to take
+        
+        Returns
+        - A batch of samples from the distribution as a torch.Tensor
+        """
+        return self.rv.sample([num_samples])
+
+    @staticmethod
+    def fit_to_data(data):
+        """
+        Params
+            data (tensor) - A shape [N, D] batch of data
+
+        Returns
+            A GaussianDistribution object whose mean and covariance are fit using MLE on the
+             provided data
+        """
+        mean = torch.sum(data, axis=0).float() / len(data)
+        cov = 1. / len(data) * ((data - mean).T @ (data - mean))
+        
+        if data.shape[1] == 1:
+            # 1D case: want mean and standard deviation (NOT variance) as scalars
+            mean = mean.item()
+            sd = cov.squeeze().item() ** 0.5
+        return GaussianDistribution(mean, sd)
     
     def __str__(self):
         return f"GaussianDistribution(mean: {self.mean}, cov: {self.cov})"

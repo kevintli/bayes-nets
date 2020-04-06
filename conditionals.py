@@ -1,6 +1,6 @@
 from collections import Counter
 import numpy as np
-from torch_utils import learn_linear_gaussian_params
+from fitting import learn_gaussian_conditional_fn, LinearGaussianConditionalFn
 
 class CPD:
     """
@@ -101,13 +101,13 @@ class TabularCPD(CPD):
 
 class GaussianCPD(CPD):
     """
-    Represents a Gaussian CPD, where we specify some parameterized function that maps values for evidence variables
+    Represents a general Gaussian CPD, where we specify some parameterized function that maps values for evidence variables
         to the mean and covariance of a Gaussian.
     """
-    def __init__(self, mean_cov_fn):
+    def __init__(self, cond_fn):
         """
         Params
-        - mean_cov_fn: a function that takes in values for evidence variables and returns a GaussianDistribution object
+            cond_fn - a function that takes in values for evidence variables and returns a GaussianDistribution object
 
         Example:
         g = GaussianCPD(self, lambda z: GaussianDistribution(z, 1))  # P(X|z) is a unit Gaussian centered at z
@@ -115,26 +115,31 @@ class GaussianCPD(CPD):
         g.get_probability(5.3, 5)  # => 0.38138781546052414
         g.sample(3)                # Samples from P(X | z=3)
         """
-
         CPD.__init__(self)
-        self.mean_cov_fn = mean_cov_fn
+        self.cond_fn = cond_fn
 
     def get_probability(self, x, evidence):
-        return self.mean_cov_fn(evidence).get_probability(x)
+        return self.cond_fn(evidence).get_probability(x)
 
     def sample(self, evidence, num_samples=1):
-        return self.mean_cov_fn(evidence).sample(num_samples)
+        return self.cond_fn(evidence).sample(num_samples)
 
     @staticmethod
-    def fit_linear_to_data(evidence_vars, data):
+    def fit_linear_to_data(evidence, data):
         """
-        Returns a GaussianCPD object whose mean_cov_fn has parameters learned using MLE on the provided data.
-
+        Returns a linear GaussianCPD object whose parameters are learned using MLE on the provided data.
 
         Params
-        - evidence: A tuple of evidence variable data, where the ith item is a shape (N, E_i) batch of evidence
-                     data for the ith evidence variable
-        - data:     A shape (N, D) batch of data sampled from the conditional distribution
+            evidence (list[tensor]) -  A list of evidence variable data, where the ith item is a shape (N, E_i) batch of evidence
+                                        data for the ith evidence variable
+            data (tensor)           -  A shape (N, D) batch of data sampled from the conditional distribution
         """
-        mean_cov_fn = learn_linear_gaussian_params(evidence_vars, data)
-        return GaussianCPD(mean_cov_fn)
+        evidence_dims = [e.shape[1] for e in evidence]
+        data_dim = data.shape[1]
+
+        cond_fn, cond_fn_approx = learn_gaussian_conditional_fn(
+                                        LinearGaussianConditionalFn(evidence_dims, data_dim), 
+                                        evidence, 
+                                        data
+                                    )
+        return GaussianCPD(cond_fn), cond_fn_approx

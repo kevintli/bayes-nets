@@ -1,5 +1,6 @@
 from dag import DirectedAcyclicGraph
 import numpy as np
+import torch
 
 class BNNode:
     """
@@ -42,6 +43,7 @@ class BayesNet(DirectedAcyclicGraph):
 
         # Maps node names to BNNode objects, which have conditional probabilities and other useful data
         self._bnnode_mapping = {name: BNNode(name) for name in nodes}
+        self.num_nodes = len(nodes)
 
         # Before the BayesNet is built (using build()), we cannot run sampling/inference/parameter estimation yet.
         self.build_done = False
@@ -102,30 +104,30 @@ class BayesNet(DirectedAcyclicGraph):
         Params
         - evidence_dict (dict): Map of node names (representing evidence variables) to their known values
 
-        Returns: a tuple of sampled values according to the topological ordering of the graph
+        Returns: a list of sampled values according to the topological ordering of the graph
         """
 
         self._assert_build_done()
 
         evidence_dict = dict(evidence_dict or {}) # Make a copy
         results = []
-        for node_name in self.topological_order():
+        for node_name in self.ordering:
             if node_name in evidence_dict:
                 results.append(evidence_dict[node_name])
             else:
                 node = self.get_node(node_name)
-                evidence = tuple([evidence_dict[parent_name] for parent_name in node.parents])
-                sample = node.cpd.sample(evidence) if evidence is not () else node.cpd.sample()
+                evidence = [evidence_dict[parent_name] for parent_name in node.parents]
+                sample = node.cpd.sample(evidence) if evidence else node.cpd.sample()
                 results.append(sample)
                 evidence_dict[node_name] = sample
         
-        return tuple(results)
+        return results
 
     def sample_batch(self, num_samples=1, evidence_dict=None):
         samples = []
         for _ in range(num_samples):
             samples.append(self.sample(evidence_dict))
-        return np.array(samples)
+        return samples
     
     def _assert_build_done(self):
         assert self.build_done, "[BayesNet] Must call build() before running sampling, parameter estimation, or inference!"
