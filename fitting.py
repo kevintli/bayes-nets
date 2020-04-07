@@ -8,7 +8,7 @@ class ConditionalDataset(torch.utils.data.Dataset):
     def __init__(self, evidence_vars, data):
         """
         Params
-        - evidence_vars:  A tuple of evidence variable data, where the ith item is a shape (N, E_i) batch of evidence
+        - evidence_vars:  A list of evidence variable data, where the ith item is a shape (N, E_i) batch of evidence
                            data for the ith evidence variable
         - data:           A shape (N, D) batch of data sampled from the conditional distribution
         """
@@ -105,8 +105,9 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=30,
             optimizer.step()
         
         print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}") # Avg loss per batch
-        print(cond_fn_approx.weights[0].weight)
-        print(cond_fn_approx.cov)
+        print("a:", cond_fn_approx.weights[0].weight.squeeze().item())
+        print("b:", cond_fn_approx.weights[0].bias.item())
+        print("SD:", cond_fn_approx.cov.item())
         epoch += 1
         total_loss = 0
 

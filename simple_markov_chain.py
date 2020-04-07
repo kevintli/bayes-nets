@@ -22,19 +22,22 @@ class SimpleMarkovChain(BayesNet):
         parameters = []
 
         self.set_prior("X_1", GaussianDistribution(0, 1))
+
         for i in range(1, self.num_nodes):
             # Randomly assign values for a, b, sd, where:
             # P(X_i+1 | X_i) ~ N(aX_i + b, sd)
             a = np.random.uniform(*a_range)
-            # b = np.random.uniform(*b_range)
-            b = 0
+            b = np.random.uniform(*b_range)
             sd = np.random.uniform(max_sd)
 
-            # Save the generated parameters (for testing/debugging purposes)
+            # Save the generated parameters (for testing/debugging purposes only)
             parameters.append({"a": a, "b": b, "sd": sd})
 
-            # Set the actual CPD according to the generated values
-            self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(lambda e: GaussianDistribution(a * e[0] + b, sd)))
+            # Create a conditional function with the fixed values of a, b, sd generated
+            cond_fn = (lambda a, b, sd: (lambda e: GaussianDistribution(a * e[0] + b, sd)))(a, b, sd)
+
+            # Set the actual CPD
+            self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(cond_fn))
 
         self.build()
         return parameters
@@ -57,9 +60,11 @@ class SimpleMarkovChain(BayesNet):
 
             # Fit a linear Gaussian CPD to the data, and save the learned parameters for testing/debugging
             cpd, cond_fn_approx = GaussianCPD.fit_linear_to_data(evidence, vals)
-            learned_a = cond_fn_approx.weights[0].weight.squeeze().item()
-            learned_sd = cond_fn_approx.cov.item()
-            parameters.append({"a": learned_a, "b": 0, "sd": learned_sd})
+            parameters.append({
+                "a": cond_fn_approx.weights[0].weight.squeeze().item(), 
+                "b": cond_fn_approx.weights[0].bias.item(), 
+                "sd": cond_fn_approx.cov.item()
+            })
 
             # Set the actual CPD according to the fitted values
             self.set_parents(f"X_{i+1}", [f"X_{i}"], cpd)
@@ -70,7 +75,7 @@ class SimpleMarkovChain(BayesNet):
     def _get_data(self, data, num):
         return data[:,num].unsqueeze(1)
 
-def test_markov_chain(length=5, num_samples=100000):
+def test_markov_chain(length=5, num_samples=10000):
     mc = SimpleMarkovChain(length)
     true_params = mc.generate_cpds()
 
