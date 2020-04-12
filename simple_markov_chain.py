@@ -18,34 +18,59 @@ class SimpleMarkovChain(BayesNet):
     def __init__(self, num_nodes):
         super(SimpleMarkovChain, self).__init__(num_nodes)
     
-    def generate_cpds(self, a_range=[-10, 10], b_range=[-5, 5], max_sd=2):
+    def generate_cpds(self, degree=1, coeff_range=[-5, 5], max_sd=2):
+        vals, covs = [], []
+        for i in range(1, self.num_nodes):
+            # Generate random coefficients for each degree
+            coeffs = []
+            for deg in range(degree + 1):
+                coeff = np.random.uniform(*coeff_range)
+                coeffs.append(coeff)
+            vals.append(tuple(coeffs))
+
+            # Generate random SD (TODO: handle multivariate case - covariance matrix)
+            sd = np.random.uniform(max_sd)
+            covs.append(sd)
+
+        return self.specify_polynomial_cpds((0, 1), vals, covs)
+
+    def _create_polynomial_cond_fn(self, coeffs, sd):
+        def cond_fn(evidence):
+            mean = sum([coeff * (evidence[0] ** deg) for deg, coeff in enumerate(reversed(coeffs))])
+            return GaussianDistribution(mean, sd)
+        return cond_fn
+
+    def specify_polynomial_cpds(self, prior, vals, covs):
+        """
+        Params
+            - prior (tuple):      The mean and SD of X_1
+
+            - vals (list[tuple]): A list of polynomial coefficients for each CPD.
+                                    For example, for a chain of length 3 with quadratic Gaussian CPDs,
+                                    len(vals) = 2 and each tuple in vals has 3 items.
+
+            - covs (list[tensor]): A list of covariance matrices for each CPD.
+        """
+        assert len(vals) == self.num_nodes - 1
+        assert len(covs) == self.num_nodes - 1
+
         parameters = []
 
-        self.set_prior("X_1", GaussianDistribution(0, 1))
+        self.set_prior("X_1", GaussianDistribution(prior[0], prior[1]))
 
-        for i in range(1, self.num_nodes):
-            # Randomly assign values for a, b, sd, where:
-            # P(X_i+1 | X_i) ~ N(aX_i + b, sd)
-            a = np.random.uniform(*a_range)
-            b = np.random.uniform(*b_range)
-            sd = np.random.uniform(max_sd)
-
-            # Save the generated parameters (for testing/debugging purposes only)
-            parameters.append({"a": a, "b": b, "sd": sd})
-
-            # Create a conditional function with the fixed values of a, b, sd generated
-            cond_fn = (lambda a, b, sd: (lambda e: GaussianDistribution(a * e[0] + b, sd)))(a, b, sd)
-
-            # Set the actual CPD
+        for i, (coeffs, cov) in enumerate(zip(vals, covs), 1):
+            parameters.append({"coeffs": coeffs, "sd": cov})
+            cond_fn = self._create_polynomial_cond_fn(coeffs, cov)
             self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(cond_fn))
 
         self.build()
         return parameters
 
-    def fit_cpds_to_data(self, data):
+    def fit_cpds_to_data(self, data, log_fn=None):
         """
         Params
             data (list[tensor]) - A list containing values for each variable, sampled from the joint distribution
+            log_fn (function)   - A function that takes three arguments: the node number, epoch number, and epoch data
         """
         data = torch.tensor(data)
         parameters = []
@@ -59,7 +84,8 @@ class SimpleMarkovChain(BayesNet):
             vals = self._get_data(data, i)
 
             # Fit a linear Gaussian CPD to the data, and save the learned parameters for testing/debugging
-            cpd, cond_fn_approx = GaussianCPD.fit_linear_to_data(evidence, vals)
+            new_log_fn = None if not log_fn else (lambda num: (lambda *args: log_fn(num, *args)))(i+1)
+            cpd, cond_fn_approx = GaussianCPD.fit_linear_to_data(evidence, vals, new_log_fn)
             parameters.append({
                 "a": cond_fn_approx.weights[0].weight.squeeze().item(), 
                 "b": cond_fn_approx.weights[0].bias.item(), 
@@ -84,8 +110,8 @@ def test_markov_chain(length=5, num_samples=10000):
     (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data)
 
     def print_comparison(true_params, fitted_params):
-        print(f"a  | True: {true_vals['a']}, Fitted: {fitted_vals['a']}")
-        print(f"b  | True: {true_vals['b']}, Fitted: {fitted_vals['b']}")
+        print(f"a  | True: {true_vals['coeffs'][0]}, Fitted: {fitted_vals['a']}")
+        print(f"b  | True: {true_vals['coeffs'][1]}, Fitted: {fitted_vals['b']}")
         print(f"SD | True: {true_vals['sd']}, Fitted: {fitted_vals['sd']}")
 
     print("\nParams for X_1")
@@ -100,5 +126,5 @@ def test_markov_chain(length=5, num_samples=10000):
 
 
 if __name__ == "__main__":
-    test_markov_chain(length=5, num_samples=10000)
+    test_markov_chain(length=3, num_samples=10000)
     

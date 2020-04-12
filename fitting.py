@@ -78,6 +78,7 @@ class LinearGaussianConditionalFn(nn.Module):
         """
         return -torch.sum(distr.get_log_prob(data))
 
+
 class NeuralNetGaussianConditionalFn(nn.Module):
     """
     TOOD: implement neural net function approximator for arbitrary Gaussian CPDs
@@ -85,7 +86,7 @@ class NeuralNetGaussianConditionalFn(nn.Module):
     pass
 
 
-def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=40, batch_size=16):
+def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=25, batch_size=16, verbose=True, log_fn=None):
     """
     Given evidence and data, uses MLE to learn the optimal parameters for cond_fn, 
      which maps evidence values to a GaussianDistribution object (with a mean and covariance). 
@@ -118,11 +119,18 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=40,
             total_loss += loss.item()
             loss.backward()
             optimizer.step()
-        
+
+        # Log current parameters
+        a = cond_fn_approx.weights[0].weight.squeeze()
+        b = cond_fn_approx.weights[0].bias.squeeze()
+        cov = cond_fn_approx.cov_matrix()
+        if verbose:
+            print(f"a: {a}\nb: {b}\nCov: {cov}")
+        if log_fn:
+            log_fn(epoch, {"a": a, "b": b, "cov": cov})
+
+        # Print statistics
         print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}") # Avg loss per batch
-        print("a:", cond_fn_approx.weights[0].weight.squeeze())
-        print("b:", cond_fn_approx.weights[0].bias.squeeze())
-        print("SD:", cond_fn_approx.cov_matrix())
         epoch += 1
         total_loss = 0
 

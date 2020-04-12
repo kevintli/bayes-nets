@@ -125,7 +125,7 @@ class GaussianCPD(CPD):
         return self.cond_fn(evidence).sample(num_samples)
 
     @staticmethod
-    def fit_linear_to_data(evidence, data):
+    def fit_linear_to_data(evidence, data, log_fn=None):
         """
         Returns a linear GaussianCPD object whose parameters are learned using MLE on the provided data.
 
@@ -140,6 +140,7 @@ class GaussianCPD(CPD):
         cond_fn, cond_fn_approx = learn_gaussian_conditional_fn(
                                         LinearGaussianConditionalFn(evidence_dims, data_dim), 
                                         evidence, 
-                                        data
+                                        data,
+                                        log_fn=log_fn
                                     )
         return GaussianCPD(cond_fn), cond_fn_approx
