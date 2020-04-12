@@ -32,7 +32,7 @@ class CPD:
 
 class TabularCPD(CPD):
     """
-    Represents a tabular CPD, where we manually specify a probability distribution
+    Represents a tabular CPD, where we manually specify the conditional distribution
         for each possible combination of evidence variables.
 
     Example:

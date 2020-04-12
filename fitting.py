@@ -42,6 +42,19 @@ class LinearGaussianConditionalFn(nn.Module):
 
         # Fixed covariance matrix (learnable), regardless of evidence
         self.cov = torch.nn.Parameter(torch.eye(data_dim) if data_dim > 1 else torch.tensor(1.))
+
+    def cov_matrix(self, with_grad=False):
+        # Scalar case: don't do anything
+        if len(self.cov.shape) == 0:
+            return self.cov
+
+        # To ensure that covariance matrix is PD, don't use self.cov directly.
+        #  Instead, let L = lower diagonal matrix with contents of self.cov,
+        #  and use LL^T + eps*I as the covariance matrix.
+        with torch.set_grad_enabled(with_grad):
+            L = torch.tril(self.cov)
+            cov = L @ L.T + 1e-8 * torch.eye(L.shape[0])
+            return torch.clamp(cov, min=0)
     
     def forward(self, evidence):
         """
@@ -50,8 +63,10 @@ class LinearGaussianConditionalFn(nn.Module):
         Params
             evidence (list[torch.tensor]) - A list containing values for each evidence variable
         """
-        mean = sum([self.weights[i](evidence.float()) for i, evidence in enumerate(evidence)]).squeeze()
-        return GaussianDistribution(mean, self.cov)
+        mean = sum([self.weights[i](evidence.float()) for i, evidence in enumerate(evidence)])
+        cov = self.cov_matrix(with_grad=True)
+
+        return GaussianDistribution(mean, cov)
 
     def loss(self, data, distr):
         """
@@ -61,7 +76,7 @@ class LinearGaussianConditionalFn(nn.Module):
             data  (tensor)               - A batch of data points
             distr (GaussianDistribution) - The current learned distribution
         """
-        return -torch.sum(distr.get_log_prob(data).diag())
+        return -torch.sum(distr.get_log_prob(data))
 
 class NeuralNetGaussianConditionalFn(nn.Module):
     """
@@ -70,7 +85,7 @@ class NeuralNetGaussianConditionalFn(nn.Module):
     pass
 
 
-def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=30, batch_size=16):
+def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=40, batch_size=16):
     """
     Given evidence and data, uses MLE to learn the optimal parameters for cond_fn, 
      which maps evidence values to a GaussianDistribution object (with a mean and covariance). 
@@ -105,9 +120,9 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=30,
             optimizer.step()
         
         print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}") # Avg loss per batch
-        print("a:", cond_fn_approx.weights[0].weight.squeeze().item())
-        print("b:", cond_fn_approx.weights[0].bias.item())
-        print("SD:", cond_fn_approx.cov.item())
+        print("a:", cond_fn_approx.weights[0].weight.squeeze())
+        print("b:", cond_fn_approx.weights[0].bias.squeeze())
+        print("SD:", cond_fn_approx.cov_matrix())
         epoch += 1
         total_loss = 0
 

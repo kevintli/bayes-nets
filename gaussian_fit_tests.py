@@ -5,11 +5,22 @@ import numpy as np
 import torch
 
 def test_linear_fit():
-    # P(A) ~ N(0, 1)
-    # P(B|A) ~ N(7.65 * A, 1.7)
+    # A -> B
+
     bn = BayesNet(["A", "B"])
     bn.set_prior("A", GaussianDistribution(0, 1))
-    bn.set_parents("B", ["A"], GaussianCPD(lambda a: GaussianDistribution(7.65 * a[0], 1.7)))
+
+    # Univariate Gaussian example
+    # bn.set_parents("B", ["A"], GaussianCPD(lambda a: GaussianDistribution(7.5 * a[0], 1.6)))
+
+    # Multivariate Gaussian example
+    bn.set_parents("B", ["A"], 
+        GaussianCPD(lambda a: GaussianDistribution(
+                                torch.tensor([7.65 * a[0], 3.5 * a[0]]), 
+                                torch.tensor([[5, 3.1], [3.1, 7]])
+                              )
+        )
+    )
     bn.build()
 
     # List of samples; each sample is a list of tensors (one for each variable in the bayes net)

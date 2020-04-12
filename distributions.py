@@ -72,7 +72,7 @@ class DiscreteDistribution:
 
 class GaussianDistribution:
     """
-    A (possibly multivariate) Gaussian distribution, represented by a mean and covariance matrix.
+    A Gaussian distribution with a mean and diagonal covariance matrix.
     """
     def __init__(self, mean, cov_or_sd):
         """
