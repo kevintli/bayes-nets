@@ -1,6 +1,8 @@
 from simple_markov_chain import SimpleMarkovChain
+from discriminative_markov_chain import DiscriminativeMarkovChain
 import matplotlib.pyplot as plt
 from distributions import GaussianDistribution
+import numpy as np
 
 def print_comparison(true_params, fitted_params):
     print(f"a  | True: {true_params['coeffs'][0]}, Fitted: {fitted_params['a']}")
@@ -60,6 +62,7 @@ def test_true_linear(length=4, num_samples=10000):
     fitted_mc = SimpleMarkovChain(length)
     (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
 
+
     print("\nParams for X_1")
     print(f"mean | True: {0}, Fitted: {x1_m}")
     print(f"SD   | True: {1}, Fitted: {x1_sd}")
@@ -79,6 +82,61 @@ def test_true_linear(length=4, num_samples=10000):
         plt.xlabel("Epoch")
         plt.ylabel("Squared error")
         plt.show()
+
+
+def test_true_linear_discriminative(length=4, num_samples=10000):
+    mc = SimpleMarkovChain(length)
+    true_params = mc.generate_cpds()
+
+    node_errs = {}
+
+    def log_fn(node, epoch, data):
+        """
+        Track errors for each epoch on every node
+        """
+        a_true, b_true = true_params[node - 2]['coeffs']
+        sd_true = true_params[node - 2]['sd']
+        a_err = (data['a'] - a_true) ** 2
+        b_err = (data['b'] - b_true) ** 2
+        sd_err = (data['cov'] - sd_true) ** 2
+        node_errs[node] = node_errs.get(node, []) + [(a_err.item(), b_err.item(), sd_err.item())]
+
+    data = mc.sample_batch(num_samples)
+
+    fitted_mc = DiscriminativeMarkovChain(length)
+    (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
+    # TODO compare with the true posterior distribution
+
+def test_true_linear_variational(length=3, num_samples=10000):
+    mc = SimpleMarkovChain(length)
+    true_params = mc.generate_cpds()
+
+    node_errs = {}
+
+    def log_fn(node, epoch, data):
+        """
+        Track errors for each epoch on every node
+        """
+        a_true, b_true = true_params[node - 2]['coeffs']
+        sd_true = true_params[node - 2]['sd']
+        a_err = (data['a'] - a_true) ** 2
+        b_err = (data['b'] - b_true) ** 2
+        sd_err = (data['cov'] - sd_true) ** 2
+        node_errs[node] = node_errs.get(node, []) + [(a_err.item(), b_err.item(), sd_err.item())]
+
+    data = mc.sample_batch(num_samples)
+
+    fitted_mc = SimpleMarkovChain(length)
+    (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
+
+    variational_mc = DiscriminativeMarkovChain(length)
+    true_params = variational_mc.generate_cpds()
+    _, fitted_params = variational_mc.fit_ELBO(data, fitted_mc)
+    import IPython
+    IPython.embed()
+
+    # TODO compare with the true posterior distribution
+
 
 def compute_joint_linear(mc):
     # Only works for scalar linear gaussian
@@ -137,7 +195,7 @@ def compute_joint_linear(mc):
     return GaussianDistribution(cond_mean, np.sqrt(cond_cov))
 
 if __name__ == "__main__":
-    # test_true_linear()
-    mc = SimpleMarkovChain(5)
-    true_params = mc.generate_cpds()
-    compute_joint_linear(mc)
+    test_true_linear_variational()
+    # mc = SimpleMarkovChain(5)
+    # true_params = mc.generate_cpds()
+    # compute_joint_linear(mc)
