@@ -74,7 +74,7 @@ class GaussianDistribution:
     """
     A Gaussian distribution with a mean and diagonal covariance matrix.
     """
-    def __init__(self, mean, cov_or_sd):
+    def __init__(self, mean, cov_or_sd, linear_coeffs=None, sd=None):
         """
         Params
             mean (int|float|torch.tensor)      -  Mean of the distribution
@@ -89,6 +89,8 @@ class GaussianDistribution:
             self.rv = Normal(mean.float(), cov_or_sd.float())
         else:
             self.rv = MultivariateNormal(mean, cov_or_sd)
+        self.linear_coeffs = linear_coeffs
+        self.sd = sd
 
     def get_probability(self, value):
         return np.e ** self.rv.log_prob(value)

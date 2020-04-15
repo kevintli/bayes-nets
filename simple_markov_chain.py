@@ -56,12 +56,12 @@ class SimpleMarkovChain(BayesNet):
 
         parameters = []
 
-        self.set_prior("X_1", GaussianDistribution(prior[0], prior[1]))
+        self.set_prior("X_1", GaussianDistribution(prior[0], prior[1], linear_coeffs=(0, prior[0]), sd=prior[1]))
 
         for i, (coeffs, cov) in enumerate(zip(vals, covs), 1):
             parameters.append({"coeffs": coeffs, "sd": cov})
             cond_fn = self._create_polynomial_cond_fn(coeffs, cov)
-            self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(cond_fn))
+            self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(cond_fn, linear_coeffs=coeffs, sd=cov))
 
         self.build()
         return parameters

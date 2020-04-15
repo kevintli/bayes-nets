@@ -1,5 +1,6 @@
 from simple_markov_chain import SimpleMarkovChain
 import matplotlib.pyplot as plt
+from distributions import GaussianDistribution
 
 def print_comparison(true_params, fitted_params):
     print(f"a  | True: {true_params['coeffs'][0]}, Fitted: {fitted_params['a']}")
@@ -55,6 +56,7 @@ def test_true_linear(length=4, num_samples=10000):
         node_errs[node] = node_errs.get(node, []) + [(a_err.item(), b_err.item(), sd_err.item())]
 
     data = mc.sample_batch(num_samples)
+
     fitted_mc = SimpleMarkovChain(length)
     (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
 
@@ -78,5 +80,64 @@ def test_true_linear(length=4, num_samples=10000):
         plt.ylabel("Squared error")
         plt.show()
 
+def compute_joint_linear(mc):
+    # Only works for scalar linear gaussian
+    evidence = {"X_1": 1}
+    query_node = "X_5"
+    evidence_node = "X_1"
+
+    all_coeffs = []
+    means = []
+    covs = []
+    prev_mean = 0
+    prev_cov = 1
+    all_cov = []
+    for i, var in enumerate(mc.ordering):
+        node = mc.get_node(var)
+        coeffs = node.cpd.linear_coeffs
+        cov_node = node.cpd.sd**2
+        all_coeffs.append(coeffs) #Putting all the coefficients together
+        all_cov.append(cov_node)
+
+        # Mean computations
+        curr_mean = prev_mean * coeffs[0] + coeffs[1]
+        means.append(curr_mean)
+        prev_mean = curr_mean
+
+        # cov computations
+        curr_cov = coeffs[0]*prev_cov*coeffs[0] + cov_node
+        covs.append(curr_cov)
+        prev_cov = curr_cov
+
+    # Getting the things we need for cross covariances
+    query_idx = mc.ordering.index(query_node)
+    evidence_idx = mc.ordering.index(evidence_node)
+
+    # getting the front multiplier on the later variable in terms of the earlier one.
+    front_multiplier = 1
+    start = min(query_idx, evidence_idx)
+    end = max(query_idx, evidence_idx) + 1
+    for i in range(start + 1, end):
+        front_multiplier *= all_coeffs[i][0]
+
+    # Marginalizing out everything else and computing the cross covariances
+    query_mean = means[query_idx]
+    query_cov = covs[query_idx]
+
+    evidence_mean = means[evidence_idx]
+    evidence_cov = covs[evidence_idx]
+
+    cross_cov = front_multiplier * query_cov
+
+    # Conditioning: Conditioning on the evidence to get the query distribution
+    # Currently works both ways because it is a scalar
+    cond_mean = query_mean + cross_cov*(1./evidence_cov)*(evidence[evidence_node] - evidence_mean)
+    cond_cov = query_cov - cross_cov * (1. / evidence_cov) * cross_cov
+
+    return GaussianDistribution(cond_mean, np.sqrt(cond_cov))
+
 if __name__ == "__main__":
-    test_limited_samples()
+    # test_true_linear()
+    mc = SimpleMarkovChain(5)
+    true_params = mc.generate_cpds()
+    compute_joint_linear(mc)

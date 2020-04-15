@@ -104,7 +104,7 @@ class GaussianCPD(CPD):
     Represents a general Gaussian CPD, where we specify some parameterized function that maps values for evidence variables
         to the mean and covariance of a Gaussian.
     """
-    def __init__(self, cond_fn):
+    def __init__(self, cond_fn, linear_coeffs=None, sd=None):
         """
         Params
             cond_fn - a function that takes in values for evidence variables and returns a GaussianDistribution object
@@ -117,6 +117,8 @@ class GaussianCPD(CPD):
         """
         CPD.__init__(self)
         self.cond_fn = cond_fn
+        self.linear_coeffs = linear_coeffs
+        self.sd = sd
 
     def get_probability(self, x, evidence):
         return self.cond_fn(evidence).get_probability(x)
