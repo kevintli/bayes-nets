@@ -136,14 +136,20 @@ class DiscriminativeMarkovChain(BayesNet):
             model = LinearGaussianConditionalFn(evidence_dims, data_dim)
             models.append(model)
 
+        # Variational family q(X1|X5)q(X2|X5)q(X3|X5)q(X4|X5)
+
         # The function that computes the ELBO
         def variational_loss(datapoints, models, num_nodes, fitted_mc):
+            # Fitted mc is p_hat
+            # models is q
+
             # Extracting the last node evidence
             evidence = datapoints
 
             # Get the samples from the encoder
             variational_samples = []
             for i in range(num_nodes - 1):
+                # A single sample from the variational family per X1, X2, X3, X4...
                 variational_samples.append(models[i]([evidence]).sample()[0])
             variational_samples.append(evidence)
 
@@ -157,16 +163,18 @@ class DiscriminativeMarkovChain(BayesNet):
                 evidences = variational_samples[evidence_idx[0]] if len(evidence_idx) > 0 else []
                 x = variational_samples[i]
                 # Special case of distribution vs CPD
+                # E_q[log p(X1)p(X2|X1)p(X3|X2)p(X4|X3)p(X5|X4))] - H(q)
                 if evidences == []:
-                    log_probs.append(torch.mean(node.cpd.get_probability(x)))
+                    log_probs.append(torch.mean(node.cpd.get_log_probability(x)))
                 else:
-                    log_probs.append(torch.mean(node.cpd.get_probability(x, [evidences])))
+                    log_probs.append(torch.mean(node.cpd.get_log_probability(x, [evidences])))
 
 
-            # Get the additional entropy terms
+            # Get the additional entropy terms for q -> E_q(-log q)
+            # get log probs
             q_entropies = []
             for i in range(num_nodes - 1):
-                q_entropies.append(torch.mean(models[i]([evidence]).get_probability(variational_samples[i])))
+                q_entropies.append(torch.mean(models[i]([evidence]).get_log_probability(variational_samples[i])))
 
             # Combine the loss overall
             overall_loss = 0

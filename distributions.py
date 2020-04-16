@@ -95,6 +95,9 @@ class GaussianDistribution:
     def get_probability(self, value):
         return np.e ** self.rv.log_prob(value)
 
+    def get_log_probability(self, value):
+        return self.rv.log_prob(value)
+
     def get_log_prob(self, value):
         return self.rv.log_prob(value)
 
