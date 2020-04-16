@@ -159,15 +159,16 @@ class DiscriminativeMarkovChain(BayesNet):
                 node = fitted_mc.get_node(f"X_{i + 1}")
                 evidence_nodes = node.parents
                 evidence_idx = [int(e.split('_')[1]) for e in evidence_nodes]
-                print(evidence_idx)
                 evidences = variational_samples[evidence_idx[0]] if len(evidence_idx) > 0 else []
                 x = variational_samples[i]
+                
+                with torch.no_grad():
                 # Special case of distribution vs CPD
                 # E_q[log p(X1)p(X2|X1)p(X3|X2)p(X4|X3)p(X5|X4))] - H(q)
-                if evidences == []:
-                    log_probs.append(torch.mean(node.cpd.get_log_probability(x)))
-                else:
-                    log_probs.append(torch.mean(node.cpd.get_log_probability(x, [evidences])))
+                    if evidences == []:
+                        log_probs.append(torch.mean(node.cpd.get_log_probability(x)))
+                    else:
+                        log_probs.append(torch.mean(node.cpd.get_log_probability(x, [evidences])))
 
 
             # Get the additional entropy terms for q -> E_q(-log q)
@@ -215,6 +216,8 @@ class DiscriminativeMarkovChain(BayesNet):
             # Print statistics
             print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}")  # Avg loss per batch
             epoch += 1
+
+        return models
 
     def _get_data(self, data, num):
         return data[:, num].unsqueeze(1)

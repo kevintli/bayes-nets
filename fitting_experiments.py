@@ -131,7 +131,7 @@ def test_true_linear_variational(length=3, num_samples=10000):
 
     variational_mc = DiscriminativeMarkovChain(length)
     true_params = variational_mc.generate_cpds()
-    _, fitted_params = variational_mc.fit_ELBO(data, fitted_mc)
+    models = variational_mc.fit_ELBO(data, fitted_mc)
     import IPython
     IPython.embed()
 
