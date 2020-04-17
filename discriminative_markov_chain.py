@@ -124,7 +124,7 @@ class DiscriminativeMarkovChain(BayesNet):
             data (list[tensor]) - A list containing values for each variable, sampled from the joint distribution
             log_fn (function)   - A function that takes three arguments: the node number, epoch number, and epoch data
         """
-
+        print("Fitting with ELBO")
 
         end_idx = self.num_nodes - 1
         evidence_dims = [1]
@@ -191,7 +191,8 @@ class DiscriminativeMarkovChain(BayesNet):
         dataset_size = 10000
         batch_size = 32
         num_epochs = 50
-        evidence_data = curr_evidence*np.ones((dataset_size,))
+        # evidence_data = curr_evidence*np.ones((dataset_size,))
+        evidence_data = torch.tensor(data)[:, end_idx]
         # Iterable that gives data from training set in batches with shuffling
         trainloader = torch.utils.data.DataLoader(Dataset(evidence_data), batch_size=batch_size,
                                                   shuffle=True)
@@ -202,6 +203,7 @@ class DiscriminativeMarkovChain(BayesNet):
 
         optimizer = optim.Adam(all_params)
 
+        print("Begin training loop")
         # Pytorch training loop
         for epoch in range(num_epochs):
             total_loss = 0

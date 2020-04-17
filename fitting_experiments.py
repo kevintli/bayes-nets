@@ -84,11 +84,9 @@ def test_true_linear(length=4, num_samples=10000):
         plt.show()
 
 
-def test_true_linear_discriminative(length=4, num_samples=10000):
-    mc = SimpleMarkovChain(length)
-    true_params = mc.generate_cpds()
-
+def test_true_linear_discriminative(mc, num_samples=10000):
     node_errs = {}
+    true_params = mc.parameters
 
     def log_fn(node, epoch, data):
         """
@@ -103,15 +101,16 @@ def test_true_linear_discriminative(length=4, num_samples=10000):
 
     data = mc.sample_batch(num_samples)
 
-    fitted_mc = DiscriminativeMarkovChain(length)
+    fitted_mc = DiscriminativeMarkovChain(mc.num_nodes)
     (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
+    return fitted_params
     # TODO compare with the true posterior distribution
 
-def test_true_linear_variational(length=3, num_samples=10000):
-    mc = SimpleMarkovChain(length)
-    true_params = mc.generate_cpds()
+def test_true_linear_variational(mc, num_samples=10000):
+    print("Testing VI")
 
     node_errs = {}
+    true_params = mc.parameters
 
     def log_fn(node, epoch, data):
         """
@@ -126,23 +125,25 @@ def test_true_linear_variational(length=3, num_samples=10000):
 
     data = mc.sample_batch(num_samples)
 
-    fitted_mc = SimpleMarkovChain(length)
-    (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
+    # fitted_mc = SimpleMarkovChain(length)
+    # (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
 
-    variational_mc = DiscriminativeMarkovChain(length)
+    variational_mc = DiscriminativeMarkovChain(mc.num_nodes)
     true_params = variational_mc.generate_cpds()
-    models = variational_mc.fit_ELBO(data, fitted_mc)
-    import IPython
-    IPython.embed()
+    # models = variational_mc.fit_ELBO(data, fitted_mc)
+    models = variational_mc.fit_ELBO(data, mc)
+    return [(model.weights[0].weight.item(), model.weights[0].bias.item(), model.cov_matrix()) for model in models]
+    # import IPython
+    # IPython.embed()
 
     # TODO compare with the true posterior distribution
 
 
-def compute_joint_linear(mc):
+def compute_joint_linear(mc, num_samples=10000):
     # Only works for scalar linear gaussian
-    evidence = {"X_1": 1}
-    query_node = "X_5"
-    evidence_node = "X_1"
+    evidence = {"X_5": 1}
+    query_node = "X_1"
+    evidence_node = "X_5"
 
     all_coeffs = []
     means = []
@@ -151,8 +152,10 @@ def compute_joint_linear(mc):
     prev_cov = 1
     all_cov = []
     for i, var in enumerate(mc.ordering):
+        print(f"{i}: Node {var}")
         node = mc.get_node(var)
         coeffs = node.cpd.linear_coeffs
+        print(f"CPD coeffs: {coeffs}")
         cov_node = node.cpd.sd**2
         all_coeffs.append(coeffs) #Putting all the coefficients together
         all_cov.append(cov_node)
@@ -161,11 +164,13 @@ def compute_joint_linear(mc):
         curr_mean = prev_mean * coeffs[0] + coeffs[1]
         means.append(curr_mean)
         prev_mean = curr_mean
+        print(f"Mean is now: {curr_mean}")
 
         # cov computations
         curr_cov = coeffs[0]*prev_cov*coeffs[0] + cov_node
         covs.append(curr_cov)
         prev_cov = curr_cov
+        print(f"Cov is now: {curr_cov}")
 
     # Getting the things we need for cross covariances
     query_idx = mc.ordering.index(query_node)
@@ -192,10 +197,23 @@ def compute_joint_linear(mc):
     cond_mean = query_mean + cross_cov*(1./evidence_cov)*(evidence[evidence_node] - evidence_mean)
     cond_cov = query_cov - cross_cov * (1. / evidence_cov) * cross_cov
 
+    print(f"query_cov: {query_cov}, cross_cov: {cross_cov}, evidence_cov: {evidence_cov}")
+    print(cond_cov)
+
     return GaussianDistribution(cond_mean, np.sqrt(cond_cov))
 
 if __name__ == "__main__":
-    test_true_linear_variational()
+    print("Fitting experiments...")
+    mc = SimpleMarkovChain(5)
+    mc.generate_cpds()
+    # mc.specify_polynomial_cpds((0, 1), [(1, 0)], [1])
+    print("MC initialized")
+    vi_params = test_true_linear_variational(mc)
+    dis_params = test_true_linear_discriminative(mc)
+    true_dist = compute_joint_linear(mc)
+    # mc = SimpleMarkovChain(5)
+    # true_params = mc.specify_polynomial_cpds((0.5, 1), [(0.7, 0.36), (0.5, 0.9), (0.2, 0.05), (1.4, 0.6)], [0.5, 2.4, 0.8, 1.6])
     # mc = SimpleMarkovChain(5)
     # true_params = mc.generate_cpds()
-    # compute_joint_linear(mc)
+    # true_dist = compute_joint_linear(mc)
+    # print(true_dist.mean, true_dist.cov)

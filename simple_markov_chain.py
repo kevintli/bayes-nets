@@ -18,7 +18,7 @@ class SimpleMarkovChain(BayesNet):
     def __init__(self, num_nodes):
         super(SimpleMarkovChain, self).__init__(num_nodes)
     
-    def generate_cpds(self, degree=1, coeff_range=[-5, 5], max_sd=2):
+    def generate_cpds(self, degree=1, coeff_range=[-1, 1], max_sd=1):
         vals, covs = [], []
         for i in range(1, self.num_nodes):
             # Generate random coefficients for each degree
@@ -64,6 +64,7 @@ class SimpleMarkovChain(BayesNet):
             self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(cond_fn, linear_coeffs=coeffs, sd=cov))
 
         self.build()
+        self.parameters = parameters
         return parameters
 
     def fit_cpds_to_data(self, data, log_fn=None):

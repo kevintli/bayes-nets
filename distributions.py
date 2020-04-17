@@ -84,7 +84,10 @@ class GaussianDistribution:
         self.cov = cov_or_sd
 
         if isinstance(cov_or_sd, int) or isinstance(cov_or_sd, float):
-            self.rv = Normal(torch.tensor([float(mean)]), torch.tensor([float(cov_or_sd)]))
+            if isinstance(mean, int) or isinstance(mean, float):
+                self.rv = Normal(torch.tensor([float(mean)]), torch.tensor([float(cov_or_sd)]))
+            else:
+                self.rv = Normal(mean, torch.tensor([float(cov_or_sd)]))
         elif len(cov_or_sd.shape) == 0:
             self.rv = Normal(mean.float(), cov_or_sd.float())
         else:
