@@ -123,7 +123,6 @@ class GaussianCPD(CPD):
     def get_probability(self, x, evidence):
         return self.cond_fn(evidence).get_probability(x)
 
-
     def get_log_probability(self, x, evidence):
         return self.cond_fn(evidence).get_log_probability(x)
 

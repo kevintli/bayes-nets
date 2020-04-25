@@ -43,7 +43,7 @@ class LinearGaussianConditionalFn(nn.Module):
         # Fixed covariance matrix (learnable), regardless of evidence
         self.cov = torch.nn.Parameter(torch.eye(data_dim) if data_dim > 1 else torch.tensor(1.))
 
-    def cov_matrix(self, with_grad=False):
+    def cov_matrix(self):
         # Scalar case: don't do anything
         if len(self.cov.shape) == 0:
             return self.cov
@@ -51,10 +51,9 @@ class LinearGaussianConditionalFn(nn.Module):
         # To ensure that covariance matrix is PD, don't use self.cov directly.
         #  Instead, let L = lower diagonal matrix with contents of self.cov,
         #  and use LL^T + eps*I as the covariance matrix.
-        with torch.set_grad_enabled(with_grad):
-            L = torch.tril(self.cov)
-            cov = L @ L.T + 1e-8 * torch.eye(L.shape[0])
-            return torch.clamp(cov, min=0)
+        L = torch.tril(self.cov)
+        cov = L @ L.T + 1e-8 * torch.eye(L.shape[0])
+        return torch.clamp(cov, min=0)
     
     def forward(self, evidence):
         """
@@ -64,7 +63,7 @@ class LinearGaussianConditionalFn(nn.Module):
             evidence (list[torch.tensor]) - A list containing values for each evidence variable
         """
         mean = sum([self.weights[i](evidence.float()) for i, evidence in enumerate(evidence)])
-        cov = self.cov_matrix(with_grad=True)
+        cov = self.cov_matrix()
 
         return GaussianDistribution(mean, cov)
 
@@ -123,7 +122,8 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=25,
         # Log current parameters
         a = cond_fn_approx.weights[0].weight.squeeze()
         b = cond_fn_approx.weights[0].bias.squeeze()
-        cov = cond_fn_approx.cov_matrix()
+        with torch.no_grad():
+            cov = cond_fn_approx.cov_matrix()
         if verbose:
             print(f"a: {a}\nb: {b}\nCov: {cov}")
         if log_fn:
@@ -133,10 +133,13 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=25,
         print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}") # Avg loss per batch
         epoch += 1
         total_loss = 0
+        
+    # No gradients during actual evaluation
+    for param in cond_fn_approx.parameters():
+        param.requires_grad_(False)
 
     def cond_fn(evidence):
-        with torch.no_grad():
-            distr = cond_fn_approx(evidence)
+        distr = cond_fn_approx(evidence)
         return distr
 
     return cond_fn, cond_fn_approx

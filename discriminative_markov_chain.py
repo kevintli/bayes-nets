@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
 import torch.optim as optim
 from bayes_net import BayesNet
@@ -36,7 +37,7 @@ class DiscriminativeMarkovChain(BayesNet):
     def __init__(self, num_nodes):
         super(DiscriminativeMarkovChain, self).__init__(num_nodes)
 
-    def generate_cpds(self, degree=1, coeff_range=[-5, 5], max_sd=2):
+    def generate_cpds(self, degree=1, coeff_range=[-1, 1], max_sd=1):
         vals, covs = [], []
         for i in range(1, self.num_nodes):
             # Generate random coefficients for each degree
@@ -118,7 +119,7 @@ class DiscriminativeMarkovChain(BayesNet):
         self.build()
         return (xend_prior.mean, xend_prior.cov), parameters
 
-    def fit_ELBO(self, data, fitted_mc, curr_evidence=1):
+    def fit_ELBO(self, data, fitted_mc, curr_evidence=1, plot_name="vi_loss"):
         """
         Params
             data (list[tensor]) - A list containing values for each variable, sampled from the joint distribution
@@ -151,25 +152,30 @@ class DiscriminativeMarkovChain(BayesNet):
             for i in range(num_nodes - 1):
                 # A single sample from the variational family per X1, X2, X3, X4...
                 variational_samples.append(models[i]([evidence]).sample()[0])
+
+            # Add the evidence (X5) as the last one
             variational_samples.append(evidence)
+
+            # print(f"Sampled values from q:")
+            # print(f"X_1: {variational_samples[0]}")
+            # print(f"X_2 (evidence): {variational_samples[1]}")
 
             # Get logprobs from the fitted model
             log_probs = []
             for i in range(num_nodes):
                 node = fitted_mc.get_node(f"X_{i + 1}")
                 evidence_nodes = node.parents
-                evidence_idx = [int(e.split('_')[1]) for e in evidence_nodes]
+                evidence_idx = [int(e.split('_')[1]) - 1 for e in evidence_nodes]
                 evidences = variational_samples[evidence_idx[0]] if len(evidence_idx) > 0 else []
                 x = variational_samples[i]
-                
-                with torch.no_grad():
-                # Special case of distribution vs CPD
-                # E_q[log p(X1)p(X2|X1)p(X3|X2)p(X4|X3)p(X5|X4))] - H(q)
-                    if evidences == []:
-                        log_probs.append(torch.mean(node.cpd.get_log_probability(x)))
-                    else:
-                        log_probs.append(torch.mean(node.cpd.get_log_probability(x, [evidences])))
 
+                # print(f"For node X_{i+1}, we need evidence indices {evidence_idx}. The evidences are: {evidences}")
+                
+                # E_q[log p(X1)p(X2|X1)p(X3|X2)p(X4|X3)p(X5|X4))] - H(q)
+                if evidences == []:
+                    log_probs.append(torch.mean(node.cpd.get_log_probability(x)))
+                else:
+                    log_probs.append(torch.mean(node.cpd.get_log_probability(x, [evidences])))
 
             # Get the additional entropy terms for q -> E_q(-log q)
             # get log probs
@@ -190,9 +196,10 @@ class DiscriminativeMarkovChain(BayesNet):
         # Setting up pytorch iteration
         dataset_size = 10000
         batch_size = 32
-        num_epochs = 50
+        num_epochs = 25
         # evidence_data = curr_evidence*np.ones((dataset_size,))
         evidence_data = torch.tensor(data)[:, end_idx]
+        # print(f"The evidence data is: {evidence_data}")
         # Iterable that gives data from training set in batches with shuffling
         trainloader = torch.utils.data.DataLoader(Dataset(evidence_data), batch_size=batch_size,
                                                   shuffle=True)
@@ -204,6 +211,7 @@ class DiscriminativeMarkovChain(BayesNet):
         optimizer = optim.Adam(all_params)
 
         print("Begin training loop")
+        train_losses = []
         # Pytorch training loop
         for epoch in range(num_epochs):
             total_loss = 0
@@ -217,6 +225,11 @@ class DiscriminativeMarkovChain(BayesNet):
 
             # Print statistics
             print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}")  # Avg loss per batch
+            print(models[0].weights[0].weight.item(), models[0].weights[0].bias.item())
+            print(models[0].cov_matrix())
+            train_losses += [total_loss / len(trainloader)]
+            plt.plot(train_losses)
+            plt.savefig(f"{plot_name}.png")
             epoch += 1
 
         return models

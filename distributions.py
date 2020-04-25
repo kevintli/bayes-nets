@@ -112,7 +112,7 @@ class GaussianDistribution:
         Returns
         - A batch of samples from the distribution as a torch.Tensor
         """
-        return self.rv.sample([num_samples])
+        return self.rv.rsample([num_samples])
 
     @staticmethod
     def fit_to_data(data):
