@@ -129,14 +129,14 @@ def test_true_linear_variational(data):
         sd_errs[node] = sd_errs.get(node, []) + [sd_err.item()]
 
     fitted_mc = SimpleMarkovChain(mc.num_nodes)
-    (x1_m, x1_sd), fp = fitted_mc.fit_cpds_to_data(data, log_fn)
+    fitted_mc.fit_cpds_to_data(data, log_fn)
 
-    plt.plot(list(a_errs.values())[0], label="Weight")
-    plt.plot(list(b_errs.values())[0], label="Bias")
-    plt.plot(list(sd_errs.values())[0], label="SD")
-    plt.legend()
-    plt.savefig("fitted_mc_errors.png")
-    plt.close()
+    # plt.plot(list(a_errs.values())[0], label="Weight")
+    # plt.plot(list(b_errs.values())[0], label="Bias")
+    # plt.plot(list(sd_errs.values())[0], label="SD")
+    # plt.legend()
+    # plt.savefig("fitted_mc_errors.png")
+    # plt.close()
 
     q = DiscriminativeMarkovChain(mc.num_nodes)
     q.initialize_empty_cpds()
@@ -146,11 +146,9 @@ def test_true_linear_variational(data):
     return q
 
 
-def compute_joint_linear(mc, num_samples=10000):
+def compute_joint_linear(mc, query_node, evidence_node):
     # Only works for scalar linear gaussian
-    evidence = {"X_2": 1}
-    query_node = "X_1"
-    evidence_node = "X_2"
+    evidence = {evidence_node: 1}
 
     all_coeffs = []
     means = []
@@ -209,26 +207,26 @@ def compute_joint_linear(mc, num_samples=10000):
     # print(f"Denominator: {evidence_cov}, should be: {(c[0] * c[1] * c[2]) ** 2 * all_cov[0] + all_cov[3] + c[2]**2 * all_cov[2] + c[2]**2 * c[1]**2 * all_cov[1]}")
     # print(cond_cov)
 
-    return GaussianDistribution(cond_mean, np.sqrt(cond_cov))
+    return GaussianDistribution(cond_mean, cond_cov)
 
 if __name__ == "__main__":
     print("Fitting experiments...")
 
     # Basic X_1 -> X_2
     # Goal is to infer P(X_2 | X_1)
-    mc = SimpleMarkovChain(2)
+    mc = SimpleMarkovChain(3)
 
     ## More extreme example: should learn to do X1 = X2 - 1 for values near X2=2
     ## X_1 ~ N(1, 0.0001)
     ## X_2 | X_1 ~ N(X_1 + 1, 0.0001)
     # mc.specify_polynomial_cpds((1, 0.0001), [(1, 1)], [0.0001])
 
-    mc.specify_polynomial_cpds((0, 1), [(1, 0)], [1])
+    mc.specify_polynomial_cpds((0, 1), [(1, 0), (1.5, 0.2)], [1, 0.5])
 
     data = mc.sample_batch_labeled(10000)
 
     # Exact inference to get a baseline
-    true_params = compute_joint_linear(mc)
+    true_params = compute_joint_linear(mc, "X_1", "X_3")
 
     # Amortized VI to approximate X_1 | X_2
     vi_model = test_true_linear_variational(data)
@@ -240,9 +238,9 @@ if __name__ == "__main__":
     x_1 = mle_model.get_node("X_1").cpd.cond_fn
     disc_params = x_1.weights[0].weight.item(), x_1.weights[0].bias.item(), x_1.cov_matrix()
 
-    print(f"Exact inference: X1|X2 = N({true_params.mean} * X1 + 0, {true_params.cov ** 2})")
-    print(f"Discriminative: X1|X2 = N({disc_params[0]} * X1 + {disc_params[1]}, {disc_params[2] ** 2})")
-    print(f"VI: X1|X2 = N({vi_params[0]} * X1 + {vi_params[1]}, {vi_params[2] ** 2})")
+    print(f"Exact inference: X1|X2 = N({true_params.mean} * X1 + 0, {true_params.cov})")
+    print(f"Discriminative: X1|X2 = N({disc_params[0]} * X1 + {disc_params[1]}, {disc_params[2]})")
+    print(f"VI: X1|X2 = N({vi_params[0]} * X1 + {vi_params[1]}, {vi_params[2]})")
 
 
     # ==========================

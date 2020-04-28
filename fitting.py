@@ -157,7 +157,7 @@ def fit_MLE(data, p_hat, plot_name="mle_loss"):
     for node in p_hat.all_nodes():
         if node.cpd.is_learnable:
             evidence = [data[parent] for parent in node.parents]
-            node.cpd.fit_to_data(evidence, data[node.name]) if evidence else node.cpd.fit_to_data(data)
+            node.cpd.fit_to_data(evidence, data[node.name]) if evidence else node.cpd.fit_to_data(data[node.name])
     
     return p_hat
 

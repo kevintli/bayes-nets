@@ -85,28 +85,31 @@ class GaussianDistribution(Distribution):
     """
     A Gaussian distribution with a mean and diagonal covariance matrix.
     """
-    def __init__(self, mean, cov_or_sd, linear_coeffs=None, sd=None):
+    def __init__(self, mean, cov, linear_coeffs=None, sd=None):
         """
         Params
             mean (int|float|torch.tensor)      -  Mean of the distribution
-            cov_or_sd (int|float|torch.tensor) -  Std dev (if number) or covariance matrix (if tensor)
+            cov (int|float|torch.tensor)       -  Covariance matrix
         """
         Distribution.__init__(self)
 
         self.mean = mean
-        self.cov = cov_or_sd
-
-        if isinstance(cov_or_sd, int) or isinstance(cov_or_sd, float):
-            if isinstance(mean, int) or isinstance(mean, float):
-                self.rv = Normal(torch.tensor([float(mean)]), torch.tensor([float(cov_or_sd)]))
-            else:
-                self.rv = Normal(mean, torch.tensor([float(cov_or_sd)]))
-        elif len(cov_or_sd.shape) == 0:
-            self.rv = Normal(mean.float(), cov_or_sd.float())
-        else:
-            self.rv = MultivariateNormal(mean, cov_or_sd)
+        self.cov = cov
+        self.init_rv(mean, cov)
+        
         self.linear_coeffs = linear_coeffs
         self.sd = sd
+
+    def init_rv(self, mean, cov):
+        if isinstance(cov, int) or isinstance(cov, float):
+            if isinstance(mean, int) or isinstance(mean, float):
+                self.rv = Normal(torch.tensor([float(mean)]), torch.tensor([float(cov) ** 0.5]))
+            else:
+                self.rv = Normal(mean, torch.tensor([float(cov) ** 0.5]))
+        elif len(cov.shape) == 0:
+            self.rv = Normal(mean.float(), cov.float() ** 0.5)
+        else:
+            self.rv = MultivariateNormal(mean, cov)
 
     def get_probability(self, value):
         return np.e ** self.rv.log_prob(value)
@@ -125,23 +128,27 @@ class GaussianDistribution(Distribution):
         return self.rv.rsample([num_samples])
 
     @staticmethod
-    def fit_to_data(data):
-        """
-        Params
-            data (tensor) - A shape [N, D] batch of data
+    def empty():
+        return EmptyGaussianDistribution()
 
-        Returns
-            A GaussianDistribution object whose mean and covariance are fit using MLE on the
-             provided data
-        """
+    def __str__(self):
+        return f"GaussianDistribution(mean: {self.mean}, cov: {self.cov})"
+
+class EmptyGaussianDistribution(GaussianDistribution):
+    def __init__(self):
+        GaussianDistribution.__init__(self, 0, 1)
+        self.is_learnable = True
+
+    def fit_to_data(self, data):
         mean = torch.sum(data, axis=0).float() / len(data)
         cov = 1. / len(data) * ((data - mean).T @ (data - mean))
         
         if data.shape[1] == 1:
             # 1D case: want mean and standard deviation (NOT variance) as scalars
             mean = mean.item()
-            sd = cov.squeeze().item() ** 0.5
-        return GaussianDistribution(mean, sd)
+            cov = cov.squeeze().item()
+
+        self.mean = mean
+        self.cov = cov
+        self.init_rv(mean, cov) 
     
-    def __str__(self):
-        return f"GaussianDistribution(mean: {self.mean}, cov: {self.cov})"

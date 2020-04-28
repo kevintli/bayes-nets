@@ -2,8 +2,9 @@ import numpy as np
 import torch
 
 from bayes_net import BayesNet
-from conditionals import GaussianCPD
+from conditionals import GaussianCPD, LinearGaussianCPD
 from distributions import GaussianDistribution
+from fitting import fit_MLE
 
 class SimpleMarkovChain(BayesNet):
     """
@@ -67,36 +68,20 @@ class SimpleMarkovChain(BayesNet):
         self.parameters = parameters
         return parameters
 
+    def initialize_empty_cpds(self):
+        self.set_prior("X_1", GaussianDistribution.empty())
+        for i in range(1, self.num_nodes):
+            self.set_parents(f"X_{i+1}", [f"X_{i}"], LinearGaussianCPD.empty([1], 1))
+        self.build()
+
     def fit_cpds_to_data(self, data, log_fn=None):
         """
         Params
             data (list[tensor]) - A list containing values for each variable, sampled from the joint distribution
             log_fn (function)   - A function that takes three arguments: the node number, epoch number, and epoch data
         """
-        parameters = []
-
-        x1_prior = GaussianDistribution.fit_to_data(data["X_1"])
-        self.set_prior("X_1", x1_prior)
-
-        for i in range(1, self.num_nodes):
-            print(f"\nFitting X_{i+1}\n==========")
-            evidence = [data[f"X_{i}"]]
-            vals = data[f"X_{i+1}"]
-
-            # Fit a linear Gaussian CPD to the data, and save the learned parameters for testing/debugging
-            new_log_fn = None if not log_fn else (lambda num: (lambda *args: log_fn(num, *args)))(i+1)
-            cpd, cond_fn_approx = GaussianCPD.fit_linear_to_data(evidence, vals, new_log_fn)
-            parameters.append({
-                "a": cond_fn_approx.weights[0].weight.squeeze().item(), 
-                "b": cond_fn_approx.weights[0].bias.item(), 
-                "sd": cond_fn_approx.cov.item()
-            })
-
-            # Set the actual CPD according to the fitted values
-            self.set_parents(f"X_{i+1}", [f"X_{i}"], cpd)
-        
-        self.build()
-        return (x1_prior.mean, x1_prior.cov), parameters
+        self.initialize_empty_cpds()
+        fit_MLE(data, self)
 
 
 def test_markov_chain(length=5, num_samples=10000):

@@ -1,7 +1,8 @@
 import torch
+import torch.nn as nn
 
 from distributions import Distribution
-from fitting import LinearGaussianConditionalFn
+from fitting import LinearGaussianConditionalFn, learn_gaussian_conditional_fn
 
 class CPD(Distribution):
     """
