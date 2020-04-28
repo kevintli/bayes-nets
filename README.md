@@ -21,4 +21,6 @@ a mapping from evidence variables to probability distributions.
 
 The BayesNet class (located in `bayes_net.py`) is a subclass of DAG that contains extra attributes and methods for sampling.
 Setting up a Bayes net involves specifying all connections and a CPT for each node, then calling `build()`. 
-See the class definition for an example.
+
+Full documentation on what you can do with BayesNets (sampling, fitting, inference) is here:
+https://paper.dropbox.com/doc/Bayes-Nets--Ay~lI2da1ow6iSvNuJsbXs3AAg-pQj20OftCqLRPLbGTW9di
