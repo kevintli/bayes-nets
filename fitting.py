@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import matplotlib.pyplot as plt
 
 from distributions import GaussianDistribution
 
@@ -143,3 +144,74 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=25,
         return distr
 
     return cond_fn, cond_fn_approx
+
+def fit_VI(data, mc, variational_mc, plot_name="vi_loss"):
+    """
+    Parameters
+    ----------
+    data : dict[str, tensor]
+        A named dataset where the keys are the node names, and the values are
+        a list of sampled values for that node
+
+    mc : BayesNet
+        Represents p, the true joint distribution
+
+    """
+    end_idx = mc.num_nodes
+
+    def variational_loss(evidence):
+        # Get a labeled sample from q(x)
+        sample = variational_mc.sample_labeled(evidence_dict={f"X_{end_idx}": evidence})
+
+        # log q(x) - everything except for the evidence
+        q_entropies = variational_mc.get_log_prob(sample, exclude=[f"X_{end_idx}"])
+
+        # log p(x)
+        log_probs = mc.get_log_prob(sample)
+
+        # D_KL(q||p) = E_q[log q(x) - log p(x)]
+        return torch.mean(q_entropies) - torch.mean(log_probs)
+
+    # Setting up pytorch iteration
+    dataset_size = 10000
+    batch_size = 32
+    num_epochs = 25
+
+    # Iterable that gives data from training set in batches with shuffling
+    evidence_data = data[f"X_{end_idx}"]
+    trainloader = torch.utils.data.DataLoader(evidence_data, batch_size=batch_size,
+                                                shuffle=True)
+    # Parameters to optimize with
+    params = []
+    for node in variational_mc.all_nodes():
+        if node.cpd.is_empty:
+            params += list(node.cpd.learnable_params())
+    optimizer = optim.Adam(params)
+
+    print("Begin training loop")
+    train_losses = []
+    # Pytorch training loop
+    for epoch in range(num_epochs):
+        total_loss = 0
+
+        for i, d in enumerate(trainloader):
+            optimizer.zero_grad()
+            loss = variational_loss(d[:, None])
+            total_loss += loss.item()
+            loss.backward()
+            optimizer.step()
+
+        # Print statistics
+        print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}")  # Avg loss per batch
+        # print(models[0].weights[0].weight.item(), models[0].weights[0].bias.item())
+        # print(models[0].cov_matrix())
+        train_losses += [total_loss / len(trainloader)]
+        plt.plot(train_losses)
+        plt.savefig(f"{plot_name}.png")
+        epoch += 1
+
+    for node in variational_mc.all_nodes():
+        if node.cpd.is_empty:
+            node.cpd.freeze_values()
+
+    return variational_mc

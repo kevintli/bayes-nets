@@ -1,14 +1,21 @@
 from collections import Counter
 import numpy as np
+import torch
+import torch.nn as nn
+
+from distributions import Distribution
 from fitting import learn_gaussian_conditional_fn, LinearGaussianConditionalFn
 
-class CPD:
+class CPD(Distribution):
     """
     Base class for a conditional probability distribution.
 
     We should be able to query for probabilties and sample from the distribution
         conditioned on a set of evidence variables.
     """
+    def __init__(self):
+        Distribution.__init__(self)
+
     def get_probability(self, x, evidence):
         """
         Returns P(X=x|e_1, e_2, ..., e_n)
@@ -123,8 +130,8 @@ class GaussianCPD(CPD):
     def get_probability(self, x, evidence):
         return self.cond_fn(evidence).get_probability(x)
 
-    def get_log_probability(self, x, evidence):
-        return self.cond_fn(evidence).get_log_probability(x)
+    def get_log_prob(self, x, evidence):
+        return self.cond_fn(evidence).get_log_prob(x)
 
     def sample(self, evidence, num_samples=1):
         return self.cond_fn(evidence).sample(num_samples)
@@ -149,3 +156,69 @@ class GaussianCPD(CPD):
                                         log_fn=log_fn
                                     )
         return GaussianCPD(cond_fn), cond_fn_approx
+
+class LinearGaussianCPD(GaussianCPD):
+    def __init__(self, linear_coeffs, cov):
+        """
+        Parameters
+        ----------
+        linear_coeffs : list[tuple[torch.tensor, torch.tensor]]
+            A list of coefficients, one for each evidence variable.
+            Each coefficient is a 2-element tuple with a weight and bias.
+
+        cov : torch.tensor
+            The covariance, which is fixed regardless of evidence.
+        """
+        GaussianCPD.__init__(self, self.cond_fn)
+        self.weights = [coeff[0] for coeff in linear_coeffs]
+        self.biases = [coeff[1] for coeff in linear_coeffs]
+        self.cov = cov
+
+    def cond_fn(self, evidence):
+        evidence = evidence.float()
+
+        def mult(weight, evidnece):
+            if isinstance(weight, (int, float)):
+                return weight * evidence
+            if isinstance(weight, torch.Tensor) and weight.shape == 0:
+                return weight * evidence
+            else:
+                return weight @ evidence
+
+        mean = sum([mult(self.weights[i], evidence) + self.biases[i] for i, evidence in enumerate(evidence)])
+        cov = self.cov
+        return GaussianDistribution(mean, cov)
+
+    @staticmethod
+    def empty(evidence_dims, data_dim):
+        """
+        Returns an uninitialized linear Gaussian CPD whose weights can be learned (e.g. using MLE or VI).
+        This allows you to set up the structure of a Bayes Net without having to specify values yet.
+
+        Parameters
+        ----------
+        evidence_dims : list[int]
+            A list of dimensions for each of the evidence variables
+        
+        data_dim : int
+            The dimensionality of the distribution
+        """
+        return EmptyGaussianCPD(
+            # Initialize a cond_fn with random linear weights and biases
+            LinearGaussianConditionalFn(evidence_dims, data_dim)
+        )
+
+class EmptyGaussianCPD(GaussianCPD):
+    def __init__(self, cond_fn):
+        assert isinstance(cond_fn, nn.Module), "cond_fn for EmptyGaussianCPD must be an instance of nn.Module"
+        GaussianCPD.__init__(self, cond_fn)
+        self.is_empty = True
+
+    def learnable_params(self):
+        return list(self.cond_fn.parameters())
+
+    def freeze_values(self):
+        for param in self.cond_fn.parameters():
+            param.requires_grad_(False)
+        self.is_empty = False
+        

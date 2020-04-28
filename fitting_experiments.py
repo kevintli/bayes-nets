@@ -1,9 +1,11 @@
-from simple_markov_chain import SimpleMarkovChain
-from discriminative_markov_chain import DiscriminativeMarkovChain
 import matplotlib.pyplot as plt
-from distributions import GaussianDistribution
 import numpy as np
 import torch
+
+from discriminative_markov_chain import DiscriminativeMarkovChain
+from distributions import GaussianDistribution
+from fitting import fit_VI
+from simple_markov_chain import SimpleMarkovChain
 
 def print_comparison(true_params, fitted_params):
     print(f"a  | True: {true_params['coeffs'][0]}, Fitted: {fitted_params['a']}")
@@ -85,7 +87,7 @@ def test_true_linear(length=4, num_samples=10000):
         plt.show()
 
 
-def test_true_linear_discriminative(mc, num_samples=10000):
+def test_true_linear_discriminative(data):
     node_errs = {}
     true_params = mc.parameters
 
@@ -100,14 +102,11 @@ def test_true_linear_discriminative(mc, num_samples=10000):
         sd_err = (data['cov'] - sd_true) ** 2
         node_errs[node] = node_errs.get(node, []) + [(a_err.item(), b_err.item(), sd_err.item())]
 
-    data = mc.sample_batch(num_samples)
-
     fitted_mc = DiscriminativeMarkovChain(mc.num_nodes)
     (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
     return fitted_params
-    # TODO compare with the true posterior distribution
 
-def test_true_linear_variational(mc, num_samples=10000):
+def test_true_linear_variational(data):
     print("Testing VI")
 
     true_params = mc.parameters
@@ -127,20 +126,6 @@ def test_true_linear_variational(mc, num_samples=10000):
         b_errs[node] = b_errs.get(node, []) + [b_err.item()]
         sd_errs[node] = sd_errs.get(node, []) + [sd_err.item()]
 
-    # Sample from p (the true joint distribution)
-    data = mc.sample_batch(num_samples)
-
-    # Initialize a discriminative model and fit it using VI
-    variational_mc = DiscriminativeMarkovChain(mc.num_nodes)
-    variational_mc.generate_cpds()
-
-    # Uncomment to use p instead of p_hat for VI
-    # ========
-    # models = variational_mc.fit_ELBO(data, mc, plot_name="vi_loss_true")
-    # ========
-    
-    # Uncomment to use p_hat instead of p for VI
-    # ========
     fitted_mc = SimpleMarkovChain(mc.num_nodes)
     (x1_m, x1_sd), fp = fitted_mc.fit_cpds_to_data(data, log_fn)
 
@@ -151,12 +136,12 @@ def test_true_linear_variational(mc, num_samples=10000):
     plt.savefig("fitted_mc_errors.png")
     plt.close()
 
-    models = variational_mc.fit_ELBO(data, mc, plot_name="vi_loss_fitted")
+    q = DiscriminativeMarkovChain(mc.num_nodes)
+    q.initialize_empty_cpds()
+    fit_VI(data, fitted_mc, q)
     # ========
 
-    return models[0]
-
-    # TODO compare with the true posterior distribution
+    return q
 
 
 def compute_joint_linear(mc, num_samples=10000):
@@ -238,15 +223,18 @@ if __name__ == "__main__":
 
     mc.specify_polynomial_cpds((0, 1), [(1, 0)], [1])
 
+    data = mc.sample_batch_labeled(10000)
+
     # Exact inference to get a baseline
     true_params = compute_joint_linear(mc)
 
     # Amortized VI to approximate X_1 | X_2
-    vi_model = test_true_linear_variational(mc)
-    vi_params = vi_model.weights[0].weight.item(), vi_model.weights[0].bias.item(), vi_model.cov_matrix()
+    vi_model = test_true_linear_variational(data)
+    x_1 = vi_model.get_node("X_1").cpd.cond_fn
+    vi_params = x_1.weights[0].weight.item(), x_1.weights[0].bias.item(), x_1.cov_matrix()
 
     # Discriminative: learn X_1 | X_2 directly with MLE
-    disc_params = test_true_linear_discriminative(mc)
+    disc_params = test_true_linear_discriminative(data)
 
     print(f"Exact inference: X1|X2 = N({true_params.mean} * X1 + 0, {true_params.cov ** 2})")
     print(f"Discriminative: X1|X2 = N({disc_params[0]['a']} * X1 + {disc_params[0]['b']}, {disc_params[0]['sd'] ** 2}")

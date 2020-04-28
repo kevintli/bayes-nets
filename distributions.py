@@ -6,7 +6,17 @@ import torch
 from torch.distributions.normal import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-class DiscreteDistribution:
+class Distribution:
+    def __init__(self):
+        self.is_empty = False
+
+    def learnable_params(self):
+        return []
+
+    def freeze_values(self):
+        pass
+
+class DiscreteDistribution(Distribution):
     """
     A discrete, tabular probability distribution.
     All possible values and their corresponding probabilties must be manually specified.
@@ -20,6 +30,7 @@ class DiscreteDistribution:
         - needs_normalize (bool): if set to True, the values in the probabilities dictionary will be 
             normalized to ensure they sum to 1.
         """
+        Distribution.__init__(self)
         self.probs = probabilities
         if needs_normalize:
             self.normalize()
@@ -70,7 +81,7 @@ class DiscreteDistribution:
         return sum(self.probs.values())
 
 
-class GaussianDistribution:
+class GaussianDistribution(Distribution):
     """
     A Gaussian distribution with a mean and diagonal covariance matrix.
     """
@@ -80,6 +91,8 @@ class GaussianDistribution:
             mean (int|float|torch.tensor)      -  Mean of the distribution
             cov_or_sd (int|float|torch.tensor) -  Std dev (if number) or covariance matrix (if tensor)
         """
+        Distribution.__init__(self)
+
         self.mean = mean
         self.cov = cov_or_sd
 
@@ -97,9 +110,6 @@ class GaussianDistribution:
 
     def get_probability(self, value):
         return np.e ** self.rv.log_prob(value)
-
-    def get_log_probability(self, value):
-        return self.rv.log_prob(value)
 
     def get_log_prob(self, value):
         return self.rv.log_prob(value)

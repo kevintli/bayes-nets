@@ -76,6 +76,9 @@ class BayesNet(DirectedAcyclicGraph):
     def get_node(self, name):
         return self._bnnode_mapping[name]
 
+    def all_nodes(self):
+        return [self.get_node(name) for name in self.ordering]
+
     def build(self):
         """
         Finalizes the BayesNet by checking that everything is properly specified, then assigning
@@ -123,11 +126,37 @@ class BayesNet(DirectedAcyclicGraph):
         
         return results
 
+    def sample_labeled(self, evidence_dict=None):
+        sample = self.sample(evidence_dict)
+        return {name: sample[i] for i, name in enumerate(self.ordering)}
+
     def sample_batch(self, num_samples=1, evidence_dict=None):
         samples = []
         for _ in range(num_samples):
             samples.append(self.sample(evidence_dict))
         return samples
+
+    def sample_batch_labeled(self, num_samples=1, evidence_dict=None):
+        samples = torch.tensor(self.sample_batch(num_samples, evidence_dict))
+        return {name: samples[:, i][:,None] for i, name in enumerate(self.ordering)}
+
+    def _log_prob_for_node(self, node_name, data):
+        node = self.get_node(node_name)
+        evidence = [data[parent] for parent in node.parents]
+        if evidence:
+            return node.cpd.get_log_prob(data[node_name], evidence)
+        else:
+            return node.cpd.get_log_prob(data[node_name])
+
+    def get_log_prob(self, data, exclude=[]):
+        """
+        Parameters
+        ----------
+        data : dict[str, tensor]
+            A named dataset where the keys are the node names, and the values are
+            a list of sampled values for that node
+        """
+        return sum([self._log_prob_for_node(node_name, data) for node_name in self.ordering if not node_name in exclude])
     
     def _assert_build_done(self):
         assert self.build_done, "[BayesNet] Must call build() before running sampling, parameter estimation, or inference!"

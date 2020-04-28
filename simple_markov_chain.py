@@ -73,16 +73,15 @@ class SimpleMarkovChain(BayesNet):
             data (list[tensor]) - A list containing values for each variable, sampled from the joint distribution
             log_fn (function)   - A function that takes three arguments: the node number, epoch number, and epoch data
         """
-        data = torch.tensor(data)
         parameters = []
 
-        x1_prior = GaussianDistribution.fit_to_data(self._get_data(data, 0))
+        x1_prior = GaussianDistribution.fit_to_data(data["X_1"])
         self.set_prior("X_1", x1_prior)
 
         for i in range(1, self.num_nodes):
             print(f"\nFitting X_{i+1}\n==========")
-            evidence = [self._get_data(data, i-1)]
-            vals = self._get_data(data, i)
+            evidence = [data[f"X_{i}"]]
+            vals = data[f"X_{i+1}"]
 
             # Fit a linear Gaussian CPD to the data, and save the learned parameters for testing/debugging
             new_log_fn = None if not log_fn else (lambda num: (lambda *args: log_fn(num, *args)))(i+1)
@@ -99,8 +98,6 @@ class SimpleMarkovChain(BayesNet):
         self.build()
         return (x1_prior.mean, x1_prior.cov), parameters
 
-    def _get_data(self, data, num):
-        return data[:,num].unsqueeze(1)
 
 def test_markov_chain(length=5, num_samples=10000):
     mc = SimpleMarkovChain(length)
