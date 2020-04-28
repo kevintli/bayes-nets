@@ -8,7 +8,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 class Distribution:
     def __init__(self):
-        self.is_empty = False
+        self.is_learnable = False
 
     def learnable_params(self):
         return []

@@ -86,7 +86,7 @@ class NeuralNetGaussianConditionalFn(nn.Module):
     pass
 
 
-def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=25, batch_size=16, verbose=True, log_fn=None):
+def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=15, batch_size=32, verbose=True, log_fn=None):
     """
     Given evidence and data, uses MLE to learn the optimal parameters for cond_fn, 
      which maps evidence values to a GaussianDistribution object (with a mean and covariance). 
@@ -139,11 +139,28 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, num_epochs=25,
     for param in cond_fn_approx.parameters():
         param.requires_grad_(False)
 
-    def cond_fn(evidence):
-        distr = cond_fn_approx(evidence)
-        return distr
+    return cond_fn_approx
 
-    return cond_fn, cond_fn_approx
+def fit_MLE(data, p_hat, plot_name="mle_loss"):
+    """
+    Parameters
+    ----------
+    data : dict[str, tensor]
+        A named dataset where the keys are the node names, and the values are
+        a list of sampled values for that node
+
+    p_hat : BayesNet
+        Represents the distribution to fit via MLE.
+        Only learnable factors (is_learnable = True) will be fit, so it is possible to pass in a p_hat
+            with some already specified factors and only fit the rest.
+    """
+    for node in p_hat.all_nodes():
+        if node.cpd.is_learnable:
+            evidence = [data[parent] for parent in node.parents]
+            node.cpd.fit_to_data(evidence, data[node.name]) if evidence else node.cpd.fit_to_data(data)
+    
+    return p_hat
+
 
 def fit_VI(data, mc, variational_mc, plot_name="vi_loss"):
     """
@@ -156,6 +173,8 @@ def fit_VI(data, mc, variational_mc, plot_name="vi_loss"):
     mc : BayesNet
         Represents p, the true joint distribution
 
+    variational_mc : BayesNet
+        Represents q, the distribution to learn via VI
     """
     end_idx = mc.num_nodes
 
@@ -173,9 +192,8 @@ def fit_VI(data, mc, variational_mc, plot_name="vi_loss"):
         return torch.mean(q_entropies) - torch.mean(log_probs)
 
     # Setting up pytorch iteration
-    dataset_size = 10000
     batch_size = 32
-    num_epochs = 25
+    num_epochs = 15
 
     # Iterable that gives data from training set in batches with shuffling
     evidence_data = data[f"X_{end_idx}"]
@@ -184,7 +202,7 @@ def fit_VI(data, mc, variational_mc, plot_name="vi_loss"):
     # Parameters to optimize with
     params = []
     for node in variational_mc.all_nodes():
-        if node.cpd.is_empty:
+        if node.cpd.is_learnable:
             params += list(node.cpd.learnable_params())
     optimizer = optim.Adam(params)
 
@@ -202,16 +220,14 @@ def fit_VI(data, mc, variational_mc, plot_name="vi_loss"):
             optimizer.step()
 
         # Print statistics
-        print(f"\nEpoch {epoch}; Avg Loss: {total_loss / len(trainloader)}")  # Avg loss per batch
-        # print(models[0].weights[0].weight.item(), models[0].weights[0].bias.item())
-        # print(models[0].cov_matrix())
+        print(f"Epoch {epoch}; Avg Loss: {total_loss / len(trainloader)}")  # Avg loss per batch
         train_losses += [total_loss / len(trainloader)]
         plt.plot(train_losses)
         plt.savefig(f"{plot_name}.png")
         epoch += 1
 
     for node in variational_mc.all_nodes():
-        if node.cpd.is_empty:
+        if node.cpd.is_learnable:
             node.cpd.freeze_values()
 
     return variational_mc

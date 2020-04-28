@@ -1,10 +1,7 @@
-from collections import Counter
-import numpy as np
 import torch
-import torch.nn as nn
 
 from distributions import Distribution
-from fitting import learn_gaussian_conditional_fn, LinearGaussianConditionalFn
+from fitting import LinearGaussianConditionalFn
 
 class CPD(Distribution):
     """
@@ -136,27 +133,6 @@ class GaussianCPD(CPD):
     def sample(self, evidence, num_samples=1):
         return self.cond_fn(evidence).sample(num_samples)
 
-    @staticmethod
-    def fit_linear_to_data(evidence, data, log_fn=None):
-        """
-        Returns a linear GaussianCPD object whose parameters are learned using MLE on the provided data.
-
-        Params
-            evidence (list[tensor]) -  A list of evidence variable data, where the ith item is a shape (N, E_i) batch of evidence
-                                        data for the ith evidence variable
-            data (tensor)           -  A shape (N, D) batch of data sampled from the conditional distribution
-        """
-        evidence_dims = [e.shape[1] for e in evidence]
-        data_dim = data.shape[1]
-
-        cond_fn, cond_fn_approx = learn_gaussian_conditional_fn(
-                                        LinearGaussianConditionalFn(evidence_dims, data_dim), 
-                                        evidence, 
-                                        data,
-                                        log_fn=log_fn
-                                    )
-        return GaussianCPD(cond_fn), cond_fn_approx
-
 class LinearGaussianCPD(GaussianCPD):
     def __init__(self, linear_coeffs, cov):
         """
@@ -212,7 +188,7 @@ class EmptyGaussianCPD(GaussianCPD):
     def __init__(self, cond_fn):
         assert isinstance(cond_fn, nn.Module), "cond_fn for EmptyGaussianCPD must be an instance of nn.Module"
         GaussianCPD.__init__(self, cond_fn)
-        self.is_empty = True
+        self.is_learnable = True
 
     def learnable_params(self):
         return list(self.cond_fn.parameters())
@@ -220,5 +196,8 @@ class EmptyGaussianCPD(GaussianCPD):
     def freeze_values(self):
         for param in self.cond_fn.parameters():
             param.requires_grad_(False)
-        self.is_empty = False
-        
+        self.is_learnable = False
+
+    def fit_to_data(self, evidence, data):
+        learn_gaussian_conditional_fn(self.cond_fn, evidence, data)
+        self.freeze_values()

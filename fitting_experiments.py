@@ -4,7 +4,7 @@ import torch
 
 from discriminative_markov_chain import DiscriminativeMarkovChain
 from distributions import GaussianDistribution
-from fitting import fit_VI
+from fitting import fit_VI, fit_MLE
 from simple_markov_chain import SimpleMarkovChain
 
 def print_comparison(true_params, fitted_params):
@@ -102,9 +102,11 @@ def test_true_linear_discriminative(data):
         sd_err = (data['cov'] - sd_true) ** 2
         node_errs[node] = node_errs.get(node, []) + [(a_err.item(), b_err.item(), sd_err.item())]
 
-    fitted_mc = DiscriminativeMarkovChain(mc.num_nodes)
-    (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
-    return fitted_params
+    p_hat = DiscriminativeMarkovChain(mc.num_nodes)
+    p_hat.initialize_empty_cpds()
+    fit_MLE(data, p_hat)
+
+    return p_hat
 
 def test_true_linear_variational(data):
     print("Testing VI")
@@ -234,10 +236,12 @@ if __name__ == "__main__":
     vi_params = x_1.weights[0].weight.item(), x_1.weights[0].bias.item(), x_1.cov_matrix()
 
     # Discriminative: learn X_1 | X_2 directly with MLE
-    disc_params = test_true_linear_discriminative(data)
+    mle_model = test_true_linear_discriminative(data)
+    x_1 = mle_model.get_node("X_1").cpd.cond_fn
+    disc_params = x_1.weights[0].weight.item(), x_1.weights[0].bias.item(), x_1.cov_matrix()
 
     print(f"Exact inference: X1|X2 = N({true_params.mean} * X1 + 0, {true_params.cov ** 2})")
-    print(f"Discriminative: X1|X2 = N({disc_params[0]['a']} * X1 + {disc_params[0]['b']}, {disc_params[0]['sd'] ** 2}")
+    print(f"Discriminative: X1|X2 = N({disc_params[0]} * X1 + {disc_params[1]}, {disc_params[2] ** 2})")
     print(f"VI: X1|X2 = N({vi_params[0]} * X1 + {vi_params[1]}, {vi_params[2] ** 2})")
 
 
