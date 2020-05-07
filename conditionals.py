@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from distributions import Distribution
-from fitting import LinearGaussianConditionalFn, learn_gaussian_conditional_fn
+from fitting import LinearGaussianConditionalFn, NeuralNetGaussianConditionalFn, learn_gaussian_conditional_fn
 
 class CPD(Distribution):
     """
@@ -134,6 +134,30 @@ class GaussianCPD(CPD):
     def sample(self, evidence, num_samples=1):
         return self.cond_fn(evidence).sample(num_samples)
 
+    @staticmethod
+    def empty(evidence_dims, data_dim, hidden_layers=2, layer_size=32):
+        """
+        Returns an uninitialized neural net Gaussian CPD whose weights can be learned (e.g. using MLE or VI).
+        This allows you to set up the structure of a Bayes Net without having to specify values yet.
+
+        Parameters
+        ----------
+        evidence_dims : list[int]
+            A list of dimensions for each of the evidence variables
+        
+        data_dim : int
+            The dimensionality of the distribution
+
+        hidden_layers : int, optional
+            Number of hidden layers to use in neural net
+
+        layer_size : int, optional
+            Size of each hidden layer
+        """
+        return EmptyGaussianCPD(
+            NeuralNetGaussianConditionalFn(evidence_dims, data_dim, hidden_layers, layer_size)
+        )
+
 class LinearGaussianCPD(GaussianCPD):
     def __init__(self, linear_coeffs, cov):
         """
@@ -199,6 +223,9 @@ class EmptyGaussianCPD(GaussianCPD):
             param.requires_grad_(False)
         self.is_learnable = False
 
-    def fit_to_data(self, evidence, data):
-        learn_gaussian_conditional_fn(self.cond_fn, evidence, data)
+        # TODO: FIX THIS
+        self.cov = self.cond_fn.cov_matrix()
+
+    def fit_to_data(self, evidence, data, batch_size=32, log_fn=None):
+        learn_gaussian_conditional_fn(self.cond_fn, evidence, data, batch_size=batch_size, log_fn=log_fn)
         self.freeze_values()

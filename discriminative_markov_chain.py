@@ -11,10 +11,10 @@ class DiscriminativeMarkovChain(BayesNet):
     def __init__(self, num_nodes):
         super(DiscriminativeMarkovChain, self).__init__(num_nodes)
 
-    def initialize_empty_cpds(self):
+    def initialize_empty_cpds(self, cpd_class=LinearGaussianCPD):
         self.set_prior(f"X_{self.num_nodes}", GaussianDistribution(0, 1))
         for i in range(self.num_nodes - 1):
-            self.set_parents(f"X_{i+1}", [f"X_{self.num_nodes}"], LinearGaussianCPD.empty([1], 1))
+            self.set_parents(f"X_{i+1}", [f"X_{self.num_nodes}"], cpd_class.empty([1], 1))
         self.build()
 
 if __name__ == "__main__":

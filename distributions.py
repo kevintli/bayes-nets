@@ -139,7 +139,7 @@ class EmptyGaussianDistribution(GaussianDistribution):
         GaussianDistribution.__init__(self, 0, 1)
         self.is_learnable = True
 
-    def fit_to_data(self, data):
+    def fit_to_data(self, data, **kwargs):
         mean = torch.sum(data, axis=0).float() / len(data)
         cov = 1. / len(data) * ((data - mean).T @ (data - mean))
         

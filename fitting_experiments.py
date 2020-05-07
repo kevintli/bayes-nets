@@ -115,21 +115,8 @@ def test_true_linear_variational(data):
 
     a_errs, b_errs, sd_errs = {}, {}, {}
 
-    def log_fn(node, epoch, data):
-        """
-        Track errors for each epoch on every node
-        """
-        a_true, b_true = true_params[node - 2]['coeffs']
-        sd_true = true_params[node - 2]['sd']
-        a_err = (data['a'] - a_true) ** 2
-        b_err = (data['b'] - b_true) ** 2
-        sd_err = (data['cov'] - sd_true) ** 2
-        a_errs[node] = a_errs.get(node, []) + [a_err.item()]
-        b_errs[node] = b_errs.get(node, []) + [b_err.item()]
-        sd_errs[node] = sd_errs.get(node, []) + [sd_err.item()]
-
     fitted_mc = SimpleMarkovChain(mc.num_nodes)
-    fitted_mc.fit_cpds_to_data(data, log_fn)
+    fitted_mc.fit_cpds_to_data(data)
 
     # plt.plot(list(a_errs.values())[0], label="Weight")
     # plt.plot(list(b_errs.values())[0], label="Bias")
@@ -146,9 +133,9 @@ def test_true_linear_variational(data):
     return q
 
 
-def compute_joint_linear(mc, query_node, evidence_node):
+def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
     # Only works for scalar linear gaussian
-    evidence = {evidence_node: 1}
+    evidence = {evidence_node: evidence}
 
     all_coeffs = []
     means = []
@@ -158,8 +145,18 @@ def compute_joint_linear(mc, query_node, evidence_node):
     all_cov = []
     for i, var in enumerate(mc.ordering):
         node = mc.get_node(var)
-        coeffs = node.cpd.linear_coeffs
-        cov_node = node.cpd.sd**2
+
+        # TODO: clean this up
+        if isinstance(node.cpd, GaussianDistribution):
+            coeffs = (0, node.cpd.mean)
+            cov_node = node.cpd.cov
+        elif hasattr(node.cpd.cond_fn, "weights"):
+            coeffs = (node.cpd.cond_fn.weights[0].weight, node.cpd.cond_fn.weights[0].bias)
+            cov_node = node.cpd.cov
+        else:
+            coeffs = node.cpd.linear_coeffs
+            cov_node = node.cpd.sd ** 2
+
         all_coeffs.append(coeffs) #Putting all the coefficients together
         all_cov.append(cov_node)
 
@@ -207,39 +204,39 @@ def compute_joint_linear(mc, query_node, evidence_node):
     # print(f"Denominator: {evidence_cov}, should be: {(c[0] * c[1] * c[2]) ** 2 * all_cov[0] + all_cov[3] + c[2]**2 * all_cov[2] + c[2]**2 * c[1]**2 * all_cov[1]}")
     # print(cond_cov)
 
-    return GaussianDistribution(cond_mean, cond_cov)
+    return cond_mean, cond_cov
 
 if __name__ == "__main__":
     print("Fitting experiments...")
 
     # Basic X_1 -> X_2
     # Goal is to infer P(X_2 | X_1)
-    mc = SimpleMarkovChain(3)
+    mc = SimpleMarkovChain(2)
 
     ## More extreme example: should learn to do X1 = X2 - 1 for values near X2=2
     ## X_1 ~ N(1, 0.0001)
     ## X_2 | X_1 ~ N(X_1 + 1, 0.0001)
     # mc.specify_polynomial_cpds((1, 0.0001), [(1, 1)], [0.0001])
 
-    mc.specify_polynomial_cpds((0, 1), [(1, 0), (1.5, 0.2)], [1, 0.5])
+    mc.specify_polynomial_cpds((0, 1), [(1, 0)], [1])
 
     data = mc.sample_batch_labeled(10000)
 
     # Exact inference to get a baseline
-    true_params = compute_joint_linear(mc, "X_1", "X_3")
+    true_mean, true_cov = compute_joint_linear(mc, "X_1", "X_2")
 
     # Amortized VI to approximate X_1 | X_2
     vi_model = test_true_linear_variational(data)
     x_1 = vi_model.get_node("X_1").cpd.cond_fn
     vi_params = x_1.weights[0].weight.item(), x_1.weights[0].bias.item(), x_1.cov_matrix()
 
-    # Discriminative: learn X_1 | X_2 directly with MLE
-    mle_model = test_true_linear_discriminative(data)
-    x_1 = mle_model.get_node("X_1").cpd.cond_fn
-    disc_params = x_1.weights[0].weight.item(), x_1.weights[0].bias.item(), x_1.cov_matrix()
+    # # Discriminative: learn X_1 | X_2 directly with MLE
+    # mle_model = test_true_linear_discriminative(data)
+    # x_1 = mle_model.get_node("X_1").cpd.cond_fn
+    # disc_params = x_1.weights[0].weight.item(), x_1.weights[0].bias.item(), x_1.cov_matrix()
 
-    print(f"Exact inference: X1|X2 = N({true_params.mean} * X1 + 0, {true_params.cov})")
-    print(f"Discriminative: X1|X2 = N({disc_params[0]} * X1 + {disc_params[1]}, {disc_params[2]})")
+    print(f"Exact inference: X1|X2 = N({true_mean} * X1 + 0, {true_cov})")
+    # print(f"Discriminative: X1|X2 = N({disc_params[0]} * X1 + {disc_params[1]}, {disc_params[2]})")
     print(f"VI: X1|X2 = N({vi_params[0]} * X1 + {vi_params[1]}, {vi_params[2]})")
 
 

@@ -35,16 +35,16 @@ class SimpleMarkovChain(BayesNet):
 
         return self.specify_polynomial_cpds((0, 1), vals, covs)
 
-    def _create_polynomial_cond_fn(self, coeffs, sd):
+    def _create_polynomial_cond_fn(self, coeffs, cov):
         def cond_fn(evidence):
             mean = sum([coeff * (evidence[0] ** deg) for deg, coeff in enumerate(reversed(coeffs))])
-            return GaussianDistribution(mean, sd)
+            return GaussianDistribution(mean, cov)
         return cond_fn
 
     def specify_polynomial_cpds(self, prior, vals, covs):
         """
         Params
-            - prior (tuple):      The mean and SD of X_1
+            - prior (tuple):      The mean and covariance of X_1
 
             - vals (list[tuple]): A list of polynomial coefficients for each CPD.
                                     For example, for a chain of length 3 with quadratic Gaussian CPDs,
@@ -55,23 +55,28 @@ class SimpleMarkovChain(BayesNet):
         assert len(vals) == self.num_nodes - 1
         assert len(covs) == self.num_nodes - 1
 
-        parameters = []
+        parameters = {}
 
-        self.set_prior("X_1", GaussianDistribution(prior[0], prior[1], linear_coeffs=(0, prior[0]), sd=prior[1]))
+        self.set_prior("X_1", GaussianDistribution(prior[0], prior[1], linear_coeffs=(0, prior[0]), sd=prior[1] ** 0.5))
 
         for i, (coeffs, cov) in enumerate(zip(vals, covs), 1):
-            parameters.append({"coeffs": coeffs, "sd": cov})
+            parameters[f"X_{i+1}"] = {"coeffs": coeffs, "cov": cov}
             cond_fn = self._create_polynomial_cond_fn(coeffs, cov)
-            self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(cond_fn, linear_coeffs=coeffs, sd=cov))
+            self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(cond_fn, linear_coeffs=coeffs, sd=cov ** 0.5))
 
         self.build()
         self.parameters = parameters
         return parameters
 
-    def initialize_empty_cpds(self):
-        self.set_prior("X_1", GaussianDistribution.empty())
-        for i in range(1, self.num_nodes):
-            self.set_parents(f"X_{i+1}", [f"X_{i}"], LinearGaussianCPD.empty([1], 1))
+    def initialize_empty_cpds(self, reverse=False):
+        nums = range(1, self.num_nodes+1)
+        if reverse: nums = reversed(nums)
+        nums = list(nums)
+
+        self.set_prior(f"X_{nums[0]}", GaussianDistribution.empty())
+        for i in range(len(nums) - 1):
+            self.set_parents(f"X_{nums[i+1]}", [f"X_{nums[i]}"], LinearGaussianCPD.empty([1], 1))
+            
         self.build()
 
     def fit_cpds_to_data(self, data, log_fn=None):
@@ -81,7 +86,7 @@ class SimpleMarkovChain(BayesNet):
             log_fn (function)   - A function that takes three arguments: the node number, epoch number, and epoch data
         """
         self.initialize_empty_cpds()
-        fit_MLE(data, self)
+        fit_MLE(data, self, log_fn=log_fn)
 
 
 def test_markov_chain(length=5, num_samples=10000):
