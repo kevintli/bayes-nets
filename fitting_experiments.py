@@ -190,10 +190,28 @@ def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
 
     cross_cov = front_multiplier * query_cov
 
+    print(f"Exact inference on {query_node}|{evidence_node}={evidence}")
+    print(f"All coeffs: {[all_coeffs[i][0] for i in range(start+1, end)]}")
+    print(f"query_idx: {query_idx}, ev_idx: {evidence_idx}")
+    print(f"means: {means}")
+    print(f"covs: {covs}")
+    print(f"query_mean: {query_mean}")
+    print(f"query_cov: {query_cov}")
+    print(f"front_multiplier: {front_multiplier}")
+    print(f"cross_cov: {cross_cov}")
+    print(f"evidence_mean: {evidence_mean}")
+    print(f"evidence_cov: {evidence_cov}")
+
     # Conditioning: Conditioning on the evidence to get the query distribution
     # Currently works both ways because it is a scalar
-    cond_mean = query_mean + cross_cov*(1./evidence_cov)*(evidence[evidence_node] - evidence_mean)
-    cond_cov = query_cov - cross_cov * (1. / evidence_cov) * cross_cov
+    if query_idx < evidence_idx:
+        cond_mean = query_mean + cross_cov*(1./evidence_cov)*(evidence[evidence_node] - evidence_mean)
+        cond_cov = query_cov - cross_cov * (1. / evidence_cov) * cross_cov
+    else:
+        cond_mean = query_mean
+        cond_cov = query_cov
+
+    print(f"cond_mean, cond_cov: {cond_mean}, {cond_cov}")
 
     # print(all_coeffs)
     # print(all_cov)
@@ -203,6 +221,7 @@ def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
     # print(f"Numerator: {cross_cov ** 2}, should be: {(c[0] * c[1] * c[2]) ** 2 * all_cov[0] ** 2}")
     # print(f"Denominator: {evidence_cov}, should be: {(c[0] * c[1] * c[2]) ** 2 * all_cov[0] + all_cov[3] + c[2]**2 * all_cov[2] + c[2]**2 * c[1]**2 * all_cov[1]}")
     # print(cond_cov)
+    print(f"cond_mean: {cond_mean}, cond_cov: {cond_cov}")
 
     return cond_mean, cond_cov
 

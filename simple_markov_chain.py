@@ -16,8 +16,9 @@ class SimpleMarkovChain(BayesNet):
     (1) generate_cpds(): randomly generates parameters for linear CPDs
     (2) fit_cpds_to_data(): fits linear CPDs according to data sampled from the true joint
     """
-    def __init__(self, num_nodes):
-        super(SimpleMarkovChain, self).__init__(num_nodes)
+    def __init__(self, num_nodes, step=1):
+        self.node_names = [f"X_{i}" for i in range(1, num_nodes+1, step)]
+        super(SimpleMarkovChain, self).__init__(self.node_names)
     
     def generate_cpds(self, degree=1, coeff_range=[-5, 5], max_sd=2):
         vals, covs = [], []
@@ -69,13 +70,14 @@ class SimpleMarkovChain(BayesNet):
         return parameters
 
     def initialize_empty_cpds(self, reverse=False):
-        nums = range(1, self.num_nodes+1)
-        if reverse: nums = reversed(nums)
-        nums = list(nums)
+        names = self.node_names
+        if reverse: names = reversed(names)
 
-        self.set_prior(f"X_{nums[0]}", GaussianDistribution.empty())
-        for i in range(len(nums) - 1):
-            self.set_parents(f"X_{nums[i+1]}", [f"X_{nums[i]}"], LinearGaussianCPD.empty([1], 1))
+        self.set_prior(names[0], GaussianDistribution.empty())
+        for i in range(len(names) - 1):
+            self.set_parents(names[i+1], [names[i]], LinearGaussianCPD.empty([1], 1))
+
+        # TODO: connect last thing
             
         self.build()
 

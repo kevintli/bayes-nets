@@ -116,7 +116,7 @@ class NeuralNetGaussianConditionalFn(GaussianConditionalFn):
         cov = self.cov_matrix()
         return GaussianDistribution(mean, cov)
 
-def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=32, eps=1e-3, recent_epochs=20, max_epochs=100, verbose=True, log_fn=None):
+def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=32, eps=5e-4, recent_epochs=20, max_epochs=100, verbose=True, log_fn=None):
     """
     Given evidence and data, uses MLE to learn the optimal parameters for cond_fn, 
      which maps evidence values to a GaussianDistribution object (with a mean and covariance). 
@@ -140,8 +140,8 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=32,
 
     recent_losses = []
 
-    # max_epochs = int(3e5 // len(data))
-    max_epochs = 100
+    max_epochs = int(3e5 // len(data))
+    # max_epochs = 100
 
     for epoch in range(max_epochs):
         total_loss = 0
@@ -211,6 +211,7 @@ def fit_MLE(data, p_hat, batch_size=32, log_fn=None):
             with some already specified factors and only fit the rest.
     """
     for node in p_hat.all_nodes():
+        print(f"Learning {node.name}")
         if node.cpd.is_learnable:
             evidence = [data[parent] for parent in node.parents]
             node.cpd.fit_to_data(evidence, data[node.name], batch_size=batch_size, log_fn=make_log_fn_with_node_name(node.name, log_fn)) if evidence \
@@ -250,7 +251,7 @@ def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
 
     # Setting up pytorch iteration
     batch_size = 32
-    num_epochs = 50
+    num_epochs = 150
 
     # Iterable that gives data from training set in batches with shuffling
     evidence_data = data[f"X_{end_idx}"]
@@ -263,11 +264,17 @@ def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
             params += list(node.cpd.learnable_params())
     optimizer = optim.Adam(params)
 
+    # variational_mc.get_node("X_1").cpd.cond_fn.weights[0].weight = torch.nn.Parameter(torch.tensor([[0.2]]), requires_grad=False)
+    # variational_mc.get_node("X_1").cpd.cond_fn.weights[0].bias = torch.nn.Parameter(torch.tensor([0.]), requires_grad=False)
+    # variational_mc.get_node("X_1").cpd.cond_fn.cov = torch.nn.Parameter(torch.tensor(0.8), requires_grad=False)
+
     print("Begin training loop")
     train_losses = []
     # Pytorch training loop
     for epoch in range(num_epochs):
         total_loss = 0
+
+        # print("X_1|X_5 cov:", variational_mc.get_node("X_1").cpd.cond_fn.cov_matrix())
 
         for i, d in enumerate(trainloader):
             optimizer.zero_grad()
