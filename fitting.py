@@ -116,7 +116,28 @@ class NeuralNetGaussianConditionalFn(GaussianConditionalFn):
         cov = self.cov_matrix()
         return GaussianDistribution(mean, cov)
 
-def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=32, eps=5e-4, recent_epochs=20, max_epochs=100, verbose=True, log_fn=None):
+
+def create_stopping_criterion(recent_epochs=20, eps=5e-3):
+    recent_losses = []
+
+    def should_stop(loss):
+        recent_losses.append(loss)
+        if len(recent_losses) > recent_epochs:
+            recent_losses.pop(0)
+            
+            diffs = 0
+            for i in range(1, recent_epochs):
+                diffs += abs(recent_losses[i] - recent_losses[i-1])
+            
+            if diffs / (recent_epochs - 1) < eps:
+                return True
+        
+        return False
+
+    return should_stop
+
+
+def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=128, eps=5e-3, recent_epochs=20, max_epochs=100, verbose=True, log_fn=None):
     """
     Given evidence and data, uses MLE to learn the optimal parameters for cond_fn, 
      which maps evidence values to a GaussianDistribution object (with a mean and covariance). 
@@ -141,7 +162,7 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=32,
     recent_losses = []
 
     max_epochs = int(3e5 // len(data))
-    # max_epochs = 100
+    stop_criterion = create_stopping_criterion()
 
     for epoch in range(max_epochs):
         total_loss = 0
@@ -156,12 +177,6 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=32,
             optimizer.step()
 
         # Log current parameters
-        # a = cond_fn_approx.weights[0].weight.squeeze()
-        # b = cond_fn_approx.weights[0].bias.squeeze()
-        with torch.no_grad():
-            cov = cond_fn_approx.cov_matrix()
-        # if verbose:
-            # print(f"a: {a}\nb: {b}\nCov: {cov}")
         if log_fn:
             log_fn(cond_fn_approx)
 
@@ -170,18 +185,10 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=32,
         print(f"\nEpoch {epoch}; Avg Loss: {avg_loss}") # Avg loss per batch
         epoch += 1
 
-        # Check stopping creteria
-        recent_losses.append(avg_loss)
-        if len(recent_losses) > recent_epochs:
-            recent_losses.pop(0)
-            
-            diffs = 0
-            for i in range(1, recent_epochs):
-                diffs += recent_losses[i] - recent_losses[i-1]
-            
-            if abs(diffs / (recent_epochs - 1)) < eps:
-                # break
-                break
+        # Check stopping criterion
+        if stop_criterion(avg_loss):
+            print("Stopping early.")
+            break
         
     # No gradients during actual evaluation
     for param in cond_fn_approx.parameters():
@@ -251,7 +258,7 @@ def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
 
     # Setting up pytorch iteration
     batch_size = 32
-    num_epochs = 150
+    num_epochs = 300
 
     # Iterable that gives data from training set in batches with shuffling
     evidence_data = data[f"X_{end_idx}"]
@@ -270,6 +277,8 @@ def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
 
     print("Begin training loop")
     train_losses = []
+    stop_criterion = create_stopping_criterion(eps=1e-3)
+
     # Pytorch training loop
     for epoch in range(num_epochs):
         total_loss = 0
@@ -284,11 +293,16 @@ def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
             optimizer.step()
 
         # Print statistics
-        print(f"Epoch {epoch}; Avg Loss: {total_loss / len(trainloader)}")  # Avg loss per batch
-        train_losses += [total_loss / len(trainloader)]
+        avg_loss = total_loss / len(trainloader)
+        print(f"Epoch {epoch}; Avg Loss: {avg_loss}")  # Avg loss per batch
+        train_losses += [avg_loss]
         plt.plot(train_losses)
         plt.savefig(f"{plot_name}.png")
         epoch += 1
+
+        if stop_criterion(avg_loss):
+            print("Stopping early.")
+            break
 
     for node in variational_mc.all_nodes():
         if node.cpd.is_learnable:

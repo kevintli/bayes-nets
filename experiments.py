@@ -102,18 +102,18 @@ def get_coeffs_from_generative(mc, query, evidence):
 
 
         
-def test_finite_samples(sample_amounts=[500]):
+def test_finite_samples(sample_amounts=[200]):
     # true_mc = SimpleMarkovChain(5)
     # true_mc.specify_polynomial_cpds((0, 1), [(1.2, 0.3), (0.4, 2), (2.3, -1.2), (1.5, 0.6)], [0.5, 1.5, 0.8, 2.3])
 
-    length = 5
+    # length = 5
 
-    true_mc = SimpleMarkovChain(length)
-    true_mc.specify_polynomial_cpds((0, 1), [(1, 0), (1, 0), (1, 0), (1, 0)], [1, 1, 1, 1])
-
-    # length = 2
     # true_mc = SimpleMarkovChain(length)
-    # true_mc.specify_polynomial_cpds((0, 1), [(1, 0)], [4])
+    # true_mc.specify_polynomial_cpds((0, 1), [(1, 0), (1, 0), (1, 0), (1, 0)], [1, 1, 1, 1])
+
+    length = 2
+    true_mc = SimpleMarkovChain(length)
+    true_mc.specify_polynomial_cpds((0, 1), [(1, 0)], [4])
 
     true_weight, true_bias, true_cov = get_coeffs_from_generative(true_mc, "X_1", f"X_{length}")
     print(f"True posterior: X_1|X_{length} ~ N({true_weight} * X_{length} + {true_bias}, {true_cov})")

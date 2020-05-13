@@ -150,11 +150,16 @@ class BayesNet(DirectedAcyclicGraph):
 
     def get_log_prob(self, data, exclude=[]):
         """
+        Returns the log joint probability of the the given data.
+
         Parameters
         ----------
         data : dict[str, tensor]
             A named dataset where the keys are the node names, and the values are
             a list of sampled values for that node
+
+        exclude : list[str]
+            A list of names of nodes to exclude from the log prob calculation.
         """
         return sum([self._log_prob_for_node(node_name, data) for node_name in self.ordering if not node_name in exclude])
     
