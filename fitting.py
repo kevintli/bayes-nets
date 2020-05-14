@@ -5,6 +5,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 from distributions import GaussianDistribution
+from prob_utils import compute_joint_linear, kl_div_gaussian
 
 class ConditionalDataset(torch.utils.data.Dataset):
     def __init__(self, evidence_vars, data):
@@ -117,7 +118,7 @@ class NeuralNetGaussianConditionalFn(GaussianConditionalFn):
         return GaussianDistribution(mean, cov)
 
 
-def create_stopping_criterion(recent_epochs=20, eps=5e-3):
+def create_stopping_criterion(recent_epochs=20, eps=3e-3):
     recent_losses = []
 
     def should_stop(loss):
@@ -196,6 +197,7 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=128
 
     return cond_fn_approx
 
+
 def make_log_fn_with_node_name(node_name, log_fn):
     if not log_fn:
         return None
@@ -203,6 +205,7 @@ def make_log_fn_with_node_name(node_name, log_fn):
     def log_fn_wrapper(*args):
         log_fn(node_name, *args)
     return log_fn_wrapper
+
 
 def fit_MLE(data, p_hat, batch_size=32, log_fn=None):
     """
@@ -226,8 +229,83 @@ def fit_MLE(data, p_hat, batch_size=32, log_fn=None):
     
     return p_hat
 
+def reverse_KL_linear(p, q, evidence_node, evidence, query_node="X_1"):
+    """
+    Returns the "reverse" KL divergence (between q and the true posterior).
 
-def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
+    For debugging purposes, can be used as the loss function (instead of ELBO loss) 
+     for learning q when the exact posterior p is known.
+
+    Parameters
+    ----------
+    p : BayesNet
+        Represents the joint distribution p(x, z). MUST BE a linear Gaussian model
+         since we need to do exact inference on p(z|x).
+
+    q : BayesNet
+        Represents the learned variational distribution q(z|x)
+
+    evidence_node : str
+        The name of the evidence node (x)
+
+    evidence : Tensor
+        A (batch_size, evidence_dim) tensor of evidence values
+    """
+
+    # Sample z ~ q(z|x)
+    sample = q.sample_labeled(evidence_dict={evidence_node: evidence})
+
+    # Compute log q(z|x)
+    q_entropies = q.get_log_prob(sample, exclude=[evidence_node])[0]
+
+    # Compute log p(z|x)
+    end_idx = int(evidence_node.split("_")[1])
+    log_probs = []
+    for i in range(1, end_idx):
+        true_mean, true_cov = compute_joint_linear(p, f"X_{i}", evidence_node, evidence)
+        # print(sample[f'X_{i}'])
+        log_probs.append(GaussianDistribution(true_mean, true_cov).get_log_prob(sample[f"X_{i}"][0]))
+        # print("result shape:", result.shape)
+
+    # Sum the log probs across nodes for each sample
+    log_probs = torch.sum(torch.cat(log_probs, axis=1), axis=1)
+
+    # D_KL(q||p) = E_q[log q(z|x) - log p(z|x)]
+    return torch.mean(q_entropies) - torch.mean(log_probs)
+    
+
+def variational_loss(p, q, evidence_node, evidence):
+    """
+    The loss function for variational inference (negative ELBO).
+
+    J(q) = D_KL(q(z|x) || p(x, z)) = D_KL(q(z|x) || p(z|x)) - log p(x)
+
+    Parameters
+    ----------
+    p : BayesNet
+        Represents the joint distribution p(x, z)
+
+    q : BayesNet
+        Represents the learned variational distribution q(z|x)
+
+    evidence_node : str
+        The name of the evidence node (x)
+
+    evidence : Tensor
+        A (batch_size, evidence_dim) tensor of evidence values
+    """
+
+    # Get a labeled sample from q(z|x)
+    sample = q.sample_labeled(evidence_dict={evidence_node: evidence})
+    # log q(z|x) - everything except for the evidence
+    q_entropies = q.get_log_prob(sample, exclude=[evidence_node])
+    # log p(x, z)
+    log_probs = p.get_log_prob(sample)
+    # D_KL(q||p) = E_q[log q(z|x) - log p(x, z)]
+    return torch.mean(q_entropies) - torch.mean(log_probs)
+
+
+def fit_VI(data, mc, variational_mc, loss_fn=variational_loss, ideal_variational_mc=None, batch_size=128, plot_name="vi_loss"):
     """
     Parameters
     ----------
@@ -240,25 +318,19 @@ def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
 
     variational_mc : BayesNet
         Represents q, the distribution to learn via VI
+
+    For DEBUGGING PURPOSES ONLY:
+    ---
+    loss_fn : function (optional)
+        The loss to use for VI. Can switch this to something else like reverse_KL_linear to test performance
+
+    ideal_variational_mc : BayesNet
+        Represents the true posterior. When plotting the loss over epochs, we will compare the loss on the learned q vs. this ideal q.
     """
     end_idx = mc.num_nodes
 
-    def variational_loss(evidence):
-        # Get a labeled sample from q(x)
-        sample = variational_mc.sample_labeled(evidence_dict={f"X_{end_idx}": evidence})
-
-        # log q(x) - everything except for the evidence
-        q_entropies = variational_mc.get_log_prob(sample, exclude=[f"X_{end_idx}"])
-
-        # log p(x)
-        log_probs = mc.get_log_prob(sample)
-
-        # D_KL(q||p) = E_q[log q(x) - log p(x)]
-        return torch.mean(q_entropies) - torch.mean(log_probs)
-
     # Setting up pytorch iteration
-    batch_size = 32
-    num_epochs = 300
+    num_epochs = 200
 
     # Iterable that gives data from training set in batches with shuffling
     evidence_data = data[f"X_{end_idx}"]
@@ -271,24 +343,25 @@ def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
             params += list(node.cpd.learnable_params())
     optimizer = optim.Adam(params)
 
-    # variational_mc.get_node("X_1").cpd.cond_fn.weights[0].weight = torch.nn.Parameter(torch.tensor([[0.2]]), requires_grad=False)
-    # variational_mc.get_node("X_1").cpd.cond_fn.weights[0].bias = torch.nn.Parameter(torch.tensor([0.]), requires_grad=False)
-    # variational_mc.get_node("X_1").cpd.cond_fn.cov = torch.nn.Parameter(torch.tensor(0.8), requires_grad=False)
-
     print("Begin training loop")
     train_losses = []
-    stop_criterion = create_stopping_criterion(eps=1e-3)
+    ideal_losses = []
+    stop_criterion = create_stopping_criterion()
 
     # Pytorch training loop
     for epoch in range(num_epochs):
         total_loss = 0
-
-        # print("X_1|X_5 cov:", variational_mc.get_node("X_1").cpd.cond_fn.cov_matrix())
+        total_ideal_loss = 0
 
         for i, d in enumerate(trainloader):
             optimizer.zero_grad()
-            loss = variational_loss(d[:, None])
+            loss = loss_fn(mc, variational_mc, f"X_{end_idx}", d)
             total_loss += loss.item()
+
+            if ideal_variational_mc:
+                ideal_loss = loss_fn(mc, ideal_variational_mc, f"X_{end_idx}", d)
+                total_ideal_loss += ideal_loss.item()
+
             loss.backward()
             optimizer.step()
 
@@ -296,13 +369,22 @@ def fit_VI(data, mc, variational_mc, batch_size=32, plot_name="vi_loss"):
         avg_loss = total_loss / len(trainloader)
         print(f"Epoch {epoch}; Avg Loss: {avg_loss}")  # Avg loss per batch
         train_losses += [avg_loss]
-        plt.plot(train_losses)
-        plt.savefig(f"{plot_name}.png")
+        
+        if ideal_variational_mc:
+            ideal_losses += [total_ideal_loss / len(trainloader)]
+
         epoch += 1
 
         if stop_criterion(avg_loss):
             print("Stopping early.")
             break
+
+    plt.figure()
+    plt.plot(train_losses, color='r', label="VI loss (q)")
+    if ideal_losses:
+        plt.plot(ideal_losses, color='b', label="VI loss (ideal)")  
+        plt.legend()
+    plt.savefig(f"{plot_name}.png")
 
     for node in variational_mc.all_nodes():
         if node.cpd.is_learnable:

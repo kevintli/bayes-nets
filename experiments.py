@@ -8,30 +8,9 @@ from bayes_net import BayesNet
 from conditionals import GaussianCPD, LinearGaussianCPD
 from discriminative_markov_chain import DiscriminativeMarkovChain
 from distributions import GaussianDistribution
-from fitting_experiments import compute_joint_linear
-from fitting import fit_MLE, fit_VI
+from fitting import fit_MLE, fit_VI, reverse_KL_linear, variational_loss
+from prob_utils import *
 from simple_markov_chain import SimpleMarkovChain
-
-def infer_from_posterior(mc, query_node, evidence_node, evidences):
-    return mc.get_node(query_node).cpd.cond_fn([evidences])
-
-def infer_from_generative(mc, query_node, evidence_node, evidences):
-    mean, cov = compute_joint_linear(mc, query_node, evidence_node, evidences)
-    return GaussianDistribution(mean, cov)
-
-def kl_div_gaussian(true_mean, true_cov, mean, cov):
-    return torch.distributions.kl.kl_divergence(Normal(true_mean, true_cov ** 0.5), Normal(mean, cov ** 0.5))
-
-def expected_kl_gaussian(true_mc, inferred_mc, query_node, evidence_node, 
-                        true_func=compute_joint_linear, posterior_func=infer_from_posterior, num_samples=5000):
-
-    evidences = true_mc.sample_batch_labeled(num_samples)[evidence_node]
-
-    true_mean, true_cov = true_func(true_mc, query_node, evidence_node, evidences)
-    posteriors = posterior_func(inferred_mc, query_node, evidence_node, evidences)
-
-    kl = kl_div_gaussian(true_mean, true_cov, posteriors.mean, posteriors.cov)
-    return torch.mean(kl)
 
 def get_inference_results(mc, num_samples=10000):
     data = mc.sample_batch_labeled(num_samples)
@@ -59,10 +38,19 @@ def get_inference_results(mc, num_samples=10000):
     p_hat.initialize_empty_cpds()
     fit_MLE(data, p_hat, batch_size=min(32, num_samples // 5))
 
-    # VI
+    # VI: using reverse KL from true posterior and the ELBO as two different losses
+    q_ideal = DiscriminativeMarkovChain(mc.num_nodes)
+    q_ideal.initialize_empty_cpds()
+    fit_VI(data, mc, q_ideal, loss_fn=reverse_KL_linear, plot_name="reverse_kl_loss")
+
     q = DiscriminativeMarkovChain(mc.num_nodes)
     q.initialize_empty_cpds()
-    fit_VI(data, mc, q, batch_size=min(32, num_samples // 5))
+    fit_VI(data, mc, q, ideal_variational_mc=q_ideal, batch_size=min(32, num_samples // 5))
+
+    # VI loss on the entire dataset of evidence
+    ideal_full_loss = variational_loss(mc, q_ideal, f"X_{mc.num_nodes}", data[f"X_{mc.num_nodes}"])
+    q_full_loss = variational_loss(mc, q, f"X_{mc.num_nodes}", data[f"X_{mc.num_nodes}"])
+    print(f"q loss: {q_full_loss}, ideal loss: {ideal_full_loss}")
 
     return fitted_mc, jumpy, full_jump, p_hat, q
 
@@ -99,21 +87,32 @@ def get_coeffs_from_generative(mc, query, evidence):
     true_cov = infer_from_generative(mc, query, evidence, 0).cov
 
     return true_mean, true_bias, true_cov
-
-
         
-def test_finite_samples(sample_amounts=[200]):
+def test_finite_samples(sample_amounts=[1000]):
+    # Arbitrary length 5 chain
+    # length = 5
     # true_mc = SimpleMarkovChain(5)
     # true_mc.specify_polynomial_cpds((0, 1), [(1.2, 0.3), (0.4, 2), (2.3, -1.2), (1.5, 0.6)], [0.5, 1.5, 0.8, 2.3])
 
+    # Easy length 5 chain
     # length = 5
-
     # true_mc = SimpleMarkovChain(length)
     # true_mc.specify_polynomial_cpds((0, 1), [(1, 0), (1, 0), (1, 0), (1, 0)], [1, 1, 1, 1])
 
-    length = 2
+    # Arbitrary length 2 chain
+    # length = 2
+    # true_mc = SimpleMarkovChain(length)
+    # true_mc.specify_polynomial_cpds((0, 1), [(-1.5, 0.6)], [0.7])
+
+    # Length 3 chain
+    length = 3
     true_mc = SimpleMarkovChain(length)
-    true_mc.specify_polynomial_cpds((0, 1), [(1, 0)], [4])
+    true_mc.specify_polynomial_cpds((0, 1), [(1, 0), (1, 0)], [1, 1])
+
+    # Show distribution of evidence
+    # evidence = true_mc.sample_batch_labeled(1000)[f"X_{length}"]
+    # plt.hist(evidence.squeeze(-1), bins=50)
+    # plt.show()
 
     true_weight, true_bias, true_cov = get_coeffs_from_generative(true_mc, "X_1", f"X_{length}")
     print(f"True posterior: X_1|X_{length} ~ N({true_weight} * X_{length} + {true_bias}, {true_cov})")
@@ -136,31 +135,39 @@ def test_finite_samples(sample_amounts=[200]):
         disc_kl = expected_kl_gaussian(true_mc, disc_posterior, "X_1", f"X_{length}")
         vi_kl = expected_kl_gaussian(true_mc, vi_posterior, "X_1", f"X_{length}")
 
-        dif = disc_posterior.get_node("X_1").cpd.cond_fn
-        vif = vi_posterior.get_node("X_1").cpd.cond_fn
-
-        gen_weight, gen_bias, gen_cov = get_coeffs_from_generative(p_hat, "X_1", f"X_{length}")
-        # # jumpy_weight, jumpy_bias, jumpy_cov = get_coeffs_from_generative(jumpy, "X_1", f"X_{length}")
-        # # full_jump_weight, full_jump_bias, full_jump_cov = get_coeffs_from_generative(full_jump, "X_1", f"X_{length}")
-        true_weight, true_bias, true_cov = get_coeffs_from_generative(true_mc, "X_1", f"X_{length}")
-
-        print(f"True posterior: X_1|X_{length} ~ N({true_weight} * X_{length} + {true_bias}, {true_cov})\n============")
-        print(f'Gen posterior: N({gen_weight} * X_{length} + {gen_bias}, {gen_cov})')
-        # # print(f'Jumpy posterior: N({jumpy_weight} * X_{length} + {jumpy_bias}, {jumpy_cov})')
-        # # print(f'Full jump posterior: N({full_jump_weight} * X_{length} + {full_jump_bias}, {full_jump_cov})')
-        print(f"Disc posterior: N({dif.weights[0].weight.item()} * X_{length} + {dif.weights[0].bias.item()}, {dif.cov_matrix().item()})")
-        print(f"VI posterior: N({vif.weights[0].weight.item()} * X_{length} + {vif.weights[0].bias.item()}, {vif.cov_matrix().item()})")
-
         gen_results.append(gen_kl)
         # # jumpy_results.append(jumpy_kl)
         # # full_jump_results.append(full_jump_kl)
         disc_results.append(disc_kl)
         vi_results.append(vi_kl)
 
+        # ==========================================
+        # Printing detailed results for each node
+        # ==========================================
+
+        for i in range(1, length):
+            true_weight, true_bias, true_cov = get_coeffs_from_generative(true_mc, f"X_{i}", f"X_{length}")
+            print("\n" + "==========" * 10)
+            print(f"True posterior: X_{i}|X_{length} ~ N({true_weight} * X_{length} + {true_bias}, {true_cov})")
+            print("==========" * 10)
+
+            gen_weight, gen_bias, gen_cov = get_coeffs_from_generative(p_hat, f"X_{i}", f"X_{length}")
+            # # jumpy_weight, jumpy_bias, jumpy_cov = get_coeffs_from_generative(jumpy, "X_1", f"X_{length}")
+            # # full_jump_weight, full_jump_bias, full_jump_cov = get_coeffs_from_generative(full_jump, "X_1", f"X_{length}")
+            dif = disc_posterior.get_node(f"X_{i}").cpd.cond_fn
+            vif = vi_posterior.get_node(f"X_{i}").cpd.cond_fn
+
+            print(f'Gen posterior: N({gen_weight} * X_{length} + {gen_bias}, {gen_cov})')
+            # # print(f'Jumpy posterior: N({jumpy_weight} * X_{length} + {jumpy_bias}, {jumpy_cov})')
+            # # print(f'Full jump posterior: N({full_jump_weight} * X_{length} + {full_jump_bias}, {full_jump_cov})')
+            print(f"Disc posterior: N({dif.weights[0].weight.item()} * X_{length} + {dif.weights[0].bias.item()}, {dif.cov_matrix().item()})")
+            print(f"VI posterior: N({vif.weights[0].weight.item()} * X_{length} + {vif.weights[0].bias.item()}, {vif.cov_matrix().item()})")
+                
+
     # df = pd.DataFrame(np.c_[gen_results, jumpy_results, full_jump_results, disc_results, vi_results], columns=["Generative", "Jumpy (step=2)", "Full jump", "Discriminative", "VI"], index=sample_amounts)
     df = pd.DataFrame(np.c_[gen_results, disc_results, vi_results], columns=["Generative", "Discriminative", "VI"], index=sample_amounts)
     df.plot.bar(rot=0)
-    plt.title("Inference of P(X1 | X5)")
+    plt.title(f"Inference of P(X1 | X{length})")
     plt.xlabel("Number of samples")
     plt.ylabel("Expected KL Divergence")
     plt.show()
