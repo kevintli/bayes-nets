@@ -9,7 +9,7 @@ from conditionals import GaussianCPD, LinearGaussianCPD
 from discriminative_markov_chain import DiscriminativeMarkovChain
 from distributions import GaussianDistribution
 from fitting import fit_MLE, fit_VI, reverse_KL_linear, variational_loss
-from prob_utils import *
+from inference import *
 from simple_markov_chain import SimpleMarkovChain
 
 def get_inference_results(mc, num_samples=10000):

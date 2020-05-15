@@ -1,31 +1,48 @@
 import torch
 from torch.distributions.normal import Normal
+from torch.nn.functional import one_hot
 
 from distributions import GaussianDistribution
 
-def get_coeffs_from_generative(mc, query, evidence):
-    true_bias = infer_from_generative(mc, query, evidence, 0).mean
-    true_mean = infer_from_generative(mc, query, evidence, 1).mean - true_bias
-    true_cov = infer_from_generative(mc, query, evidence, 0).cov
+def get_coeffs_from_generative(mc, query, evidence, dim=1):
+    zero = 0 if dim == 1 else torch.zeros(dim)
+
+    true_bias = infer_from_generative(mc, query, evidence, zero).mean
+    true_cov = infer_from_generative(mc, query, evidence, zero).cov
+
+    if dim == 1:
+        true_mean = infer_from_generative(mc, query, evidence, 1).mean - true_bias
+    else:
+        cols = []
+        for i in range(dim):
+            x = one_hot(torch.tensor(i), dim)
+            col_i = infer_from_generative(mc, query, evidence, x).mean - true_bias
+            cols.append(col_i)
+        true_mean = torch.stack(cols).T
 
     return true_mean, true_bias, true_cov
 
 def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
-    # Only works for scalar linear gaussian
+    dim = isinstance(evidence, torch.Tensor) and evidence.shape and evidence.shape[-1]
+    multi = dim > 0
+
     evidence = {evidence_node: evidence}
+
+    zero = 0 if not multi else torch.zeros(dim)
+    identity = 1 if not multi else torch.eye(dim)
 
     all_coeffs = []
     means = []
     covs = []
-    prev_mean = 0
-    prev_cov = 1
+    prev_mean = zero
+    prev_cov = identity
     all_cov = []
     for i, var in enumerate(mc.ordering):
         node = mc.get_node(var)
 
         # TODO: clean this up
         if isinstance(node.cpd, GaussianDistribution):
-            coeffs = (0, node.cpd.mean)
+            coeffs = (zero, node.cpd.mean)
             cov_node = node.cpd.cov
         elif hasattr(node.cpd.cond_fn, "weights"):
             coeffs = (node.cpd.cond_fn.weights[0].weight, node.cpd.cond_fn.weights[0].bias)
@@ -38,12 +55,18 @@ def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
         all_cov.append(cov_node)
 
         # Mean computations
-        curr_mean = prev_mean * coeffs[0] + coeffs[1]
+        if multi:
+            curr_mean = prev_mean @ coeffs[0].T + coeffs[1]
+        else:
+            curr_mean = prev_mean * coeffs[0] + coeffs[1]
         means.append(curr_mean)
         prev_mean = curr_mean
 
         # cov computations
-        curr_cov = coeffs[0]*prev_cov*coeffs[0] + cov_node
+        if multi:
+            curr_cov = coeffs[0] @ prev_cov @ coeffs[0].T + cov_node
+        else:
+            curr_cov = coeffs[0]*prev_cov*coeffs[0] + cov_node
         covs.append(curr_cov)
         prev_cov = curr_cov
 
@@ -52,11 +75,15 @@ def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
     evidence_idx = mc.ordering.index(evidence_node)
 
     # getting the front multiplier on the later variable in terms of the earlier one.
-    front_multiplier = 1
+    front_multiplier = identity
     start = min(query_idx, evidence_idx)
     end = max(query_idx, evidence_idx) + 1
     for i in range(start + 1, end):
-        front_multiplier *= all_coeffs[i][0]
+        coeff = all_coeffs[i][0]
+        if multi:
+            front_multiplier = coeff @ front_multiplier
+        else:
+            front_multiplier *= coeff
 
     # Marginalizing out everything else and computing the cross covariances
     query_mean = means[query_idx]
@@ -65,7 +92,10 @@ def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
     evidence_mean = means[evidence_idx]
     evidence_cov = covs[evidence_idx]
 
-    cross_cov = front_multiplier * query_cov
+    if multi:
+        cross_cov = query_cov @ front_multiplier.T
+    else:
+        cross_cov = front_multiplier * query_cov
 
     # print(f"Exact inference on {query_node}|{evidence_node}={evidence}")
     # print(f"All coeffs: {[all_coeffs[i][0] for i in range(start+1, end)]}")
@@ -82,15 +112,19 @@ def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
     # Conditioning: Conditioning on the evidence to get the query distribution
     # Currently works both ways because it is a scalar
     if query_idx < evidence_idx:
-        cond_mean = query_mean + cross_cov*(1./evidence_cov)*(evidence[evidence_node] - evidence_mean)
-        cond_cov = query_cov - cross_cov * (1. / evidence_cov) * cross_cov
+        if isinstance(cross_cov, torch.Tensor):
+            cond_mean = query_mean + cross_cov @ torch.inverse(evidence_cov) @ (evidence[evidence_node] - evidence_mean)
+            cond_cov = query_cov - cross_cov @ torch.inverse(evidence_cov) @ cross_cov.T
+        else:
+            cond_mean = query_mean + cross_cov*(1./evidence_cov)*(evidence[evidence_node] - evidence_mean)
+            cond_cov = query_cov - cross_cov * (1. / evidence_cov) * cross_cov
     else:
         cond_mean = query_mean
         cond_cov = query_cov
 
     # print(all_coeffs)
     # print(all_cov)
-    c = [coeff[0] for coeff in all_coeffs[1:]]
+    # c = [coeff[0] for coeff in all_coeffs[1:]]
 
     # print(f"query_cov: {query_cov}, cross_cov: {cross_cov}, evidence_cov: {evidence_cov}")
     # print(f"Numerator: {cross_cov ** 2}, should be: {(c[0] * c[1] * c[2]) ** 2 * all_cov[0] ** 2}")
