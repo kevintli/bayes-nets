@@ -117,15 +117,12 @@ class GaussianDistribution(Distribution):
     def get_log_prob(self, value):
         return self.rv.log_prob(value)
 
-    def sample(self, num_samples=1):
+    def sample(self, shape=[]):
         """
-        Params
-        - num_samples (int): The number of samples to take
-        
         Returns
         - A batch of samples from the distribution as a torch.Tensor
         """
-        return self.rv.rsample([num_samples])
+        return self.rv.rsample(shape)
 
     @staticmethod
     def empty():

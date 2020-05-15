@@ -24,7 +24,7 @@ def test_linear_fit():
     bn.build()
 
     # List of samples; each sample is a list of tensors (one for each variable in the bayes net)
-    samples = bn.sample_batch(10000)
+    samples = bn.sample(10000)
 
     # The list of evidence variables (length 1 since there's only 1 conditioning variable). 
     # Put together an Nx1 tensor of all the A values

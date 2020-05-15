@@ -3,6 +3,13 @@ from torch.distributions.normal import Normal
 
 from distributions import GaussianDistribution
 
+def get_coeffs_from_generative(mc, query, evidence):
+    true_bias = infer_from_generative(mc, query, evidence, 0).mean
+    true_mean = infer_from_generative(mc, query, evidence, 1).mean - true_bias
+    true_cov = infer_from_generative(mc, query, evidence, 0).cov
+
+    return true_mean, true_bias, true_cov
+
 def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
     # Only works for scalar linear gaussian
     evidence = {evidence_node: evidence}
@@ -24,8 +31,8 @@ def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
             coeffs = (node.cpd.cond_fn.weights[0].weight, node.cpd.cond_fn.weights[0].bias)
             cov_node = node.cpd.cov
         else:
-            coeffs = node.cpd.linear_coeffs
-            cov_node = node.cpd.sd ** 2
+            coeffs = node.cpd.coeffs_list[0]
+            cov_node = node.cpd.cov
 
         all_coeffs.append(coeffs) #Putting all the coefficients together
         all_cov.append(cov_node)
@@ -106,7 +113,7 @@ def kl_div_gaussian(true_mean, true_cov, mean, cov):
 def expected_kl_gaussian(true_mc, inferred_mc, query_node, evidence_node, 
                         true_func=compute_joint_linear, posterior_func=infer_from_posterior, num_samples=5000):
 
-    evidences = true_mc.sample_batch_labeled(num_samples)[evidence_node]
+    evidences = true_mc.sample_labeled(num_samples)[evidence_node]
 
     true_mean, true_cov = true_func(true_mc, query_node, evidence_node, evidences)
     posteriors = posterior_func(inferred_mc, query_node, evidence_node, evidences)

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 from bayes_net import BayesNet
-from conditionals import GaussianCPD, LinearGaussianCPD
+from conditionals import PolynomialGaussianCPD, LinearGaussianCPD
 from distributions import GaussianDistribution
 from fitting import fit_MLE
 
@@ -11,10 +11,12 @@ class SimpleMarkovChain(BayesNet):
     Represents a simple Markov Chain
     X_1 -> X_2 -> ... -> X_n
 
-    The CPDs can be set using ONE of the following methods:
+    The CPDs can be set using any of the following methods:
 
-    (1) generate_cpds(): randomly generates parameters for linear CPDs
-    (2) fit_cpds_to_data(): fits linear CPDs according to data sampled from the true joint
+    (1) generate_cpds(): randomly generates parameters for linear Gaussian CPDs
+    (2) fit_cpds_to_data(): fits linear Gaussian CPDs according to data sampled from the true joint
+    (3) specify_polynomial_cpds(): sets up polynomial Gaussian CPDs with the given coefficients
+
     """
     def __init__(self, num_nodes, step=1):
         self.node_names = [f"X_{i}" for i in range(1, num_nodes+1, step)]
@@ -36,12 +38,6 @@ class SimpleMarkovChain(BayesNet):
 
         return self.specify_polynomial_cpds((0, 1), vals, covs)
 
-    def _create_polynomial_cond_fn(self, coeffs, cov):
-        def cond_fn(evidence):
-            mean = sum([coeff * (evidence[0] ** deg) for deg, coeff in enumerate(reversed(coeffs))])
-            return GaussianDistribution(mean, cov)
-        return cond_fn
-
     def specify_polynomial_cpds(self, prior, vals, covs):
         """
         Params
@@ -58,36 +54,35 @@ class SimpleMarkovChain(BayesNet):
 
         parameters = {}
 
-        self.set_prior("X_1", GaussianDistribution(prior[0], prior[1], linear_coeffs=(0, prior[0]), sd=prior[1] ** 0.5))
+        self.set_prior("X_1", GaussianDistribution(prior[0], prior[1]))
 
         for i, (coeffs, cov) in enumerate(zip(vals, covs), 1):
             parameters[f"X_{i+1}"] = {"coeffs": coeffs, "cov": cov}
-            cond_fn = self._create_polynomial_cond_fn(coeffs, cov)
-            self.set_parents(f"X_{i+1}", [f"X_{i}"], GaussianCPD(cond_fn, linear_coeffs=coeffs, sd=cov ** 0.5))
+            self.set_parents(f"X_{i+1}", [f"X_{i}"], PolynomialGaussianCPD([coeffs], cov))
 
         self.build()
         self.parameters = parameters
         return parameters
 
-    def initialize_empty_cpds(self, reverse=False):
+    def initialize_empty_cpds(self, dim=1, reverse=False):
         names = self.node_names
         if reverse: names = reversed(names)
 
         self.set_prior(names[0], GaussianDistribution.empty())
         for i in range(len(names) - 1):
-            self.set_parents(names[i+1], [names[i]], LinearGaussianCPD.empty([1], 1))
+            self.set_parents(names[i+1], [names[i]], LinearGaussianCPD.empty([dim], dim))
 
         # TODO: connect last thing
             
         self.build()
 
-    def fit_cpds_to_data(self, data, log_fn=None):
+    def fit_cpds_to_data(self, data, dim=1, log_fn=None):
         """
         Params
             data (list[tensor]) - A list containing values for each variable, sampled from the joint distribution
             log_fn (function)   - A function that takes three arguments: the node number, epoch number, and epoch data
         """
-        self.initialize_empty_cpds()
+        self.initialize_empty_cpds(dim)
         fit_MLE(data, self, log_fn=log_fn)
 
 
@@ -95,7 +90,7 @@ def test_markov_chain(length=5, num_samples=10000):
     mc = SimpleMarkovChain(length)
     true_params = mc.generate_cpds()
 
-    data = mc.sample_batch(num_samples)
+    data = mc.sample(num_samples)
     fitted_mc = SimpleMarkovChain(length)
     (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data)
 

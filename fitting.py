@@ -162,7 +162,7 @@ def learn_gaussian_conditional_fn(cond_fn_approx, evidence, data, batch_size=128
 
     recent_losses = []
 
-    max_epochs = int(3e5 // len(data))
+    max_epochs = int(5e5 // len(data))
     stop_criterion = create_stopping_criterion()
 
     for epoch in range(max_epochs):
@@ -256,7 +256,7 @@ def reverse_KL_linear(p, q, evidence_node, evidence, query_node="X_1"):
     sample = q.sample_labeled(evidence_dict={evidence_node: evidence})
 
     # Compute log q(z|x)
-    q_entropies = q.get_log_prob(sample, exclude=[evidence_node])[0]
+    q_entropies = q.get_log_prob(sample, exclude=[evidence_node])
 
     # Compute log p(z|x)
     end_idx = int(evidence_node.split("_")[1])
@@ -264,7 +264,7 @@ def reverse_KL_linear(p, q, evidence_node, evidence, query_node="X_1"):
     for i in range(1, end_idx):
         true_mean, true_cov = compute_joint_linear(p, f"X_{i}", evidence_node, evidence)
         # print(sample[f'X_{i}'])
-        log_probs.append(GaussianDistribution(true_mean, true_cov).get_log_prob(sample[f"X_{i}"][0]))
+        log_probs.append(GaussianDistribution(true_mean, true_cov).get_log_prob(sample[f"X_{i}"]))
         # print("result shape:", result.shape)
 
     # Sum the log probs across nodes for each sample
@@ -305,7 +305,7 @@ def variational_loss(p, q, evidence_node, evidence):
     return torch.mean(q_entropies) - torch.mean(log_probs)
 
 
-def fit_VI(data, mc, variational_mc, loss_fn=variational_loss, ideal_variational_mc=None, batch_size=128, plot_name="vi_loss"):
+def fit_VI(data, mc, variational_mc, loss_fn=variational_loss, ideal_variational_mc=None, num_epochs=200, batch_size=128, plot_name="vi_loss"):
     """
     Parameters
     ----------
@@ -328,9 +328,6 @@ def fit_VI(data, mc, variational_mc, loss_fn=variational_loss, ideal_variational
         Represents the true posterior. When plotting the loss over epochs, we will compare the loss on the learned q vs. this ideal q.
     """
     end_idx = mc.num_nodes
-
-    # Setting up pytorch iteration
-    num_epochs = 200
 
     # Iterable that gives data from training set in batches with shuffling
     evidence_data = data[f"X_{end_idx}"]

@@ -131,8 +131,8 @@ class GaussianCPD(CPD):
     def get_log_prob(self, x, evidence):
         return self.cond_fn(evidence).get_log_prob(x)
 
-    def sample(self, evidence, num_samples=1):
-        return self.cond_fn(evidence).sample(num_samples)
+    def sample(self, evidence, shape=[]):
+        return self.cond_fn(evidence).sample(shape)
 
     @staticmethod
     def empty(evidence_dims, data_dim, hidden_layers=2, layer_size=32):
@@ -189,7 +189,7 @@ class PolynomialGaussianCPD(GaussianCPD):
         if isinstance(coeff, torch.Tensor) and coeff.shape == 0:
             return coeff * (evidence ** degree)
         else:
-            return (evidence ** degree) @ coeff
+            return (evidence ** degree) @ coeff.T
 
     def _compute_polynomial(self, coeffs, evidence):
         """

@@ -97,7 +97,7 @@ class BayesNet(DirectedAcyclicGraph):
         self.ordering = self.topological_order()
         self.build_done = True
 
-    def sample(self, evidence_dict=None):
+    def sample(self, num_samples=1, evidence_dict=None):
         """
         Samples values from the entire joint distribution of the Bayes net using ancestral sampling.
 
@@ -105,6 +105,7 @@ class BayesNet(DirectedAcyclicGraph):
             and this would sample conditioned on the known evidence variables.
 
         Params
+        - num_samples (int): Number of samples to take
         - evidence_dict (dict): Map of node names (representing evidence variables) to their known values
 
         Returns: a list of sampled values according to the topological ordering of the graph
@@ -114,31 +115,21 @@ class BayesNet(DirectedAcyclicGraph):
 
         evidence_dict = dict(evidence_dict or {}) # Make a copy
         results = []
+        shape = [] if num_samples == 1 else [num_samples]
         for node_name in self.ordering:
             if node_name in evidence_dict:
                 results.append(evidence_dict[node_name])
             else:
                 node = self.get_node(node_name)
                 evidence = [evidence_dict[parent_name] for parent_name in node.parents]
-                sample = node.cpd.sample(evidence) if evidence else node.cpd.sample()
+                sample = node.cpd.sample(evidence) if evidence else node.cpd.sample(shape=shape)
                 results.append(sample)
                 evidence_dict[node_name] = sample
-        
         return results
 
-    def sample_labeled(self, evidence_dict=None):
-        sample = self.sample(evidence_dict)
+    def sample_labeled(self, num_samples=1, evidence_dict=None):
+        sample = self.sample(num_samples, evidence_dict)
         return {name: sample[i] for i, name in enumerate(self.ordering)}
-
-    def sample_batch(self, num_samples=1, evidence_dict=None):
-        samples = []
-        for _ in range(num_samples):
-            samples.append(self.sample(evidence_dict))
-        return samples
-
-    def sample_batch_labeled(self, num_samples=1, evidence_dict=None):
-        samples = torch.tensor(self.sample_batch(num_samples, evidence_dict))
-        return {name: samples[:, i][:,None] for i, name in enumerate(self.ordering)}
 
     def _log_prob_for_node(self, node_name, data):
         node = self.get_node(node_name)

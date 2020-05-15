@@ -13,9 +13,9 @@ from prob_utils import *
 from simple_markov_chain import SimpleMarkovChain
 
 def get_inference_results(mc, num_samples=10000):
-    data = mc.sample_batch_labeled(num_samples)
+    data = mc.sample_labeled(num_samples)
 
-    print("Data:", data)
+    print("Data shapes:", [d.shape for d in data.values()])
 
     # Generative
     fitted_mc = SimpleMarkovChain(mc.num_nodes)
@@ -41,7 +41,7 @@ def get_inference_results(mc, num_samples=10000):
     # VI: using reverse KL from true posterior and the ELBO as two different losses
     q_ideal = DiscriminativeMarkovChain(mc.num_nodes)
     q_ideal.initialize_empty_cpds()
-    fit_VI(data, mc, q_ideal, loss_fn=reverse_KL_linear, plot_name="reverse_kl_loss")
+    fit_VI(data, mc, q_ideal, num_epochs=400, loss_fn=reverse_KL_linear, plot_name="reverse_kl_loss")
 
     q = DiscriminativeMarkovChain(mc.num_nodes)
     q.initialize_empty_cpds()
@@ -80,13 +80,6 @@ def make_linear_log_fn(true_mc):
             plt.savefig(f"data/{prefix}-{node_name}")
     
     return log_fn, plot_results
-
-def get_coeffs_from_generative(mc, query, evidence):
-    true_bias = infer_from_generative(mc, query, evidence, 0).mean
-    true_mean = infer_from_generative(mc, query, evidence, 1).mean - true_bias
-    true_cov = infer_from_generative(mc, query, evidence, 0).cov
-
-    return true_mean, true_bias, true_cov
         
 def test_finite_samples(sample_amounts=[1000]):
     # Arbitrary length 5 chain
@@ -110,7 +103,7 @@ def test_finite_samples(sample_amounts=[1000]):
     true_mc.specify_polynomial_cpds((0, 1), [(1, 0), (1, 0)], [1, 1])
 
     # Show distribution of evidence
-    # evidence = true_mc.sample_batch_labeled(1000)[f"X_{length}"]
+    # evidence = true_mc.sample_labeled(1000)[f"X_{length}"]
     # plt.hist(evidence.squeeze(-1), bins=50)
     # plt.show()
 
@@ -178,7 +171,7 @@ def test_model_mismatch():
 
     disc_posterior, vi_posterior = get_inference_results(mc)
 
-    data = mc.sample_batch_labeled(10000)
+    data = mc.sample_labeled(10000)
     nn_posterior = DiscriminativeMarkovChain(mc.num_nodes)
     nn_posterior.initialize_empty_cpds(GaussianCPD)
     fit_MLE(data, nn_posterior, batch_size=64)

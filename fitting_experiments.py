@@ -27,7 +27,7 @@ def test_limited_samples(length=2, sample_amounts=[100, 1000, 5000, 8000, 10000,
         results[num_samples] += [(a_err.item(), b_err.item(), sd_err.item())]
 
     for num_samples in sample_amounts:
-        data = mc.sample_batch(num_samples)
+        data = mc.sample(num_samples)
         fitted_mc = SimpleMarkovChain(length)
         (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
 
@@ -61,7 +61,7 @@ def test_true_linear(length=4, num_samples=10000):
         sd_err = (data['cov'] - sd_true) ** 2
         node_errs[node] = node_errs.get(node, []) + [(a_err.item(), b_err.item(), sd_err.item())]
 
-    data = mc.sample_batch(num_samples)
+    data = mc.sample(num_samples)
 
     fitted_mc = SimpleMarkovChain(length)
     (x1_m, x1_sd), fitted_params = fitted_mc.fit_cpds_to_data(data, log_fn)
@@ -148,7 +148,7 @@ if __name__ == "__main__":
 
     mc.specify_polynomial_cpds((0, 1), [(1, 0)], [1])
 
-    data = mc.sample_batch_labeled(10000)
+    data = mc.sample_labeled(10000)
 
     # Exact inference to get a baseline
     true_mean, true_cov = compute_joint_linear(mc, "X_1", "X_2")
