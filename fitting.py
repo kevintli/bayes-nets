@@ -5,7 +5,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 from distributions import GaussianDistribution
-from prob_utils import compute_joint_linear, kl_div_gaussian
+from inference import compute_joint_linear, kl_div_gaussian
 
 class ConditionalDataset(torch.utils.data.Dataset):
     def __init__(self, evidence_vars, data):

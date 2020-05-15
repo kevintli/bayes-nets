@@ -3,7 +3,7 @@ import torch
 from conditionals import LinearGaussianCPD
 from fitting import fit_MLE
 from simple_markov_chain import SimpleMarkovChain
-from prob_utils import get_coeffs_from_generative
+from inference import compute_joint_linear, get_coeffs_from_generative
 
 a2 = torch.eye(2)
 a1 = torch.tensor([[1, 2], [0, -3]]).float()
@@ -17,11 +17,23 @@ cov1 = torch.diag(torch.tensor([2, 3]).float())
 cov2 = torch.tensor([[3, 0], [0, 7]]).float()
 
 def test_exact_inference():
-    # Scalar case
+    # Scalar case (should be 0.33, 0, 0.67)
     mc = SimpleMarkovChain(3)
     mc.specify_polynomial_cpds((0, 1), [(1, 0), (1, 0)], [1, 1])
     weight, bias, cov = get_coeffs_from_generative(mc, "X_1", "X_3")
     print(weight, bias, cov)
+
+    # Multivariate case
+    mc = SimpleMarkovChain(2)
+    mc.specify_polynomial_cpds(
+        (torch.tensor([0, 2]).float(), torch.diag(torch.tensor([1, 0.4]))), 
+        [(torch.diag(torch.tensor([2., -1.])), torch.tensor([-3., 3.]))], 
+        [torch.diag(torch.tensor([0.5, 1.2]))]
+    )
+    weight, bias, cov = get_coeffs_from_generative(mc, "X_1", "X_2", 2)
+    print("Weight:", weight)
+    print("Bias:", bias)
+    print("Cov:", cov)
 
 def test_fitting():
     mc = SimpleMarkovChain(3)
@@ -55,5 +67,5 @@ def test_polynomial_gaussian():
 
 if __name__ == "__main__":
     # test_polynomial_gaussian()
-    # test_exact_inference()
-    test_fitting()
+    test_exact_inference()
+    # test_fitting()

@@ -5,7 +5,7 @@ import torch
 from discriminative_markov_chain import DiscriminativeMarkovChain
 from distributions import GaussianDistribution
 from fitting import fit_VI, fit_MLE
-from prob_utils import compute_joint_linear
+from inference import compute_joint_linear
 from simple_markov_chain import SimpleMarkovChain
 
 def print_comparison(true_params, fitted_params):
