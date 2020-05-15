@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from distributions import Distribution
+from distributions import Distribution, GaussianDistribution
 from fitting import LinearGaussianConditionalFn, NeuralNetGaussianConditionalFn, learn_gaussian_conditional_fn
 
 class CPD(Distribution):
@@ -158,37 +158,62 @@ class GaussianCPD(CPD):
             NeuralNetGaussianConditionalFn(evidence_dims, data_dim, hidden_layers, layer_size)
         )
 
-class LinearGaussianCPD(GaussianCPD):
-    def __init__(self, linear_coeffs, cov):
+class PolynomialGaussianCPD(GaussianCPD):
+    def __init__(self, coeffs_list, cov):
         """
         Parameters
         ----------
-        linear_coeffs : list[tuple[torch.tensor, torch.tensor]]
+        coeffs_list : list[tuple[torch.tensor]]
+            A list of coefficients, one for each evidence variable.
+            Each coefficient is a tuple with (d+1) items where d is the desired degree of the polynomial.
+
+        cov : torch.tensor
+            The covariance, which is fixed regardless of evidence.
+        """
+        GaussianCPD.__init__(self, self.cond_fn)
+        self.coeffs_list = coeffs_list
+        self.cov = cov
+
+    def cond_fn(self, evidence_list):
+        mean = sum([self._compute_polynomial(coeffs, evidence) for coeffs, evidence in zip(self.coeffs_list, evidence_list)])
+        cov = self.cov
+        return GaussianDistribution(mean, cov)
+
+    def _term(self, coeff, evidence, degree):
+        """
+        Computes a single term of the polynomial,
+            e.g. term(2, [x], 3) = 2x^3
+        """
+        if isinstance(coeff, (int, float)):
+            return coeff * (evidence ** degree)
+        if isinstance(coeff, torch.Tensor) and coeff.shape == 0:
+            return coeff * (evidence ** degree)
+        else:
+            return (evidence ** degree) @ coeff
+
+    def _compute_polynomial(self, coeffs, evidence):
+        """
+        Given coeffs (A_d, ..., A_0) and evidence x, 
+         computes the polynomial x^d * A_d + ... + x * A_1 + A_0.
+        """
+        return sum([self._term(coeff, evidence, deg) for deg, coeff in enumerate(reversed(coeffs)) if deg >= 1]) + coeffs[-1]
+
+class LinearGaussianCPD(PolynomialGaussianCPD):
+    def __init__(self, linear_coeffs_list, cov):
+        """
+        Parameters
+        ----------
+        linear_coeffs_list : list[tuple[torch.tensor]]
             A list of coefficients, one for each evidence variable.
             Each coefficient is a 2-element tuple with a weight and bias.
 
         cov : torch.tensor
             The covariance, which is fixed regardless of evidence.
         """
-        GaussianCPD.__init__(self, self.cond_fn)
-        self.weights = [coeff[0] for coeff in linear_coeffs]
-        self.biases = [coeff[1] for coeff in linear_coeffs]
+        PolynomialGaussianCPD.__init__(self, linear_coeffs_list, cov)
+        self.weights = [coeff[0] for coeff in linear_coeffs_list]
+        self.biases = [coeff[1] for coeff in linear_coeffs_list]
         self.cov = cov
-
-    def cond_fn(self, evidence):
-        evidence = evidence.float()
-
-        def mult(weight, evidnece):
-            if isinstance(weight, (int, float)):
-                return weight * evidence
-            if isinstance(weight, torch.Tensor) and weight.shape == 0:
-                return weight * evidence
-            else:
-                return weight @ evidence
-
-        mean = sum([mult(self.weights[i], evidence) + self.biases[i] for i, evidence in enumerate(evidence)])
-        cov = self.cov
-        return GaussianDistribution(mean, cov)
 
     @staticmethod
     def empty(evidence_dims, data_dim):
