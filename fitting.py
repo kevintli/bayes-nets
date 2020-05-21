@@ -268,7 +268,7 @@ def reverse_KL_linear(p, q, evidence_node, evidence, query_node="X_1"):
         # print("result shape:", result.shape)
 
     # Sum the log probs across nodes for each sample
-    log_probs = torch.sum(torch.cat(log_probs, axis=1), axis=1)
+    log_probs = sum(log_probs)
 
     # D_KL(q||p) = E_q[log q(z|x) - log p(z|x)]
     return torch.mean(q_entropies) - torch.mean(log_probs)

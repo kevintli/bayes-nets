@@ -1,28 +1,59 @@
 import torch
 from torch.distributions.normal import Normal
+from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.nn.functional import one_hot
 
 from distributions import GaussianDistribution
 
-def get_coeffs_from_generative(mc, query, evidence, dim=1):
+def get_coeffs_from_generative(mc, query_node, evidence_node, dim=1):
+    """
+    Computes the weight, bias, and covariance of the linear Gaussian posterior
+     P(query_node | evidence_node) using exact inference.
+
+    Parameters
+    ----------
+    mc : BayesNet
+        The generative model — CPDs must be linear Gaussian!
+
+    query_node : str
+        Name of the query node
+
+    evidence_node : str
+        Name of the evidence node
+
+    dim : int
+        Dimensionality of each node
+    """
     zero = 0 if dim == 1 else torch.zeros(dim)
 
-    true_bias = infer_from_generative(mc, query, evidence, zero).mean
-    true_cov = infer_from_generative(mc, query, evidence, zero).cov
+    true_bias = infer_from_generative(mc, query_node, evidence_node, zero).mean
+    true_cov = infer_from_generative(mc, query_node, evidence_node, zero).cov
 
     if dim == 1:
-        true_mean = infer_from_generative(mc, query, evidence, 1).mean - true_bias
+        true_weight = infer_from_generative(mc, query_node, evidence_node, 1).mean - true_bias
     else:
         cols = []
         for i in range(dim):
             x = one_hot(torch.tensor(i), dim)
-            col_i = infer_from_generative(mc, query, evidence, x).mean - true_bias
+            col_i = infer_from_generative(mc, query_node, evidence_node, x).mean - true_bias
             cols.append(col_i)
-        true_mean = torch.stack(cols).T
+        true_weight = torch.stack(cols).T
 
-    return true_mean, true_bias, true_cov
+    return true_weight, true_bias, true_cov
+
+def infer_from_generative(mc, query_node, evidence_node, evidences):
+    """
+    Returns a GaussianDistribution object representing the posterior 
+     P(query_node|evidence_node = evidences) for fixed evidence values.
+    """
+    mean, cov = compute_joint_linear(mc, query_node, evidence_node, evidences)
+    return GaussianDistribution(mean, cov)
 
 def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
+    """
+    Returns the mean and covariance of P(query_node | evidence_node=evidence).
+    Assumes that `mc` is a BayesNet whose CPDs are *linear Gaussian*.
+    """
     dim = isinstance(evidence, torch.Tensor) and evidence.shape and evidence.shape[-1]
     multi = dim > 1
 
@@ -97,56 +128,43 @@ def compute_joint_linear(mc, query_node, evidence_node, evidence=1):
     else:
         cross_cov = front_multiplier * query_cov
 
-    # print(f"Exact inference on {query_node}|{evidence_node}={evidence}")
-    # print(f"All coeffs: {[all_coeffs[i][0] for i in range(start+1, end)]}")
-    # print(f"query_idx: {query_idx}, ev_idx: {evidence_idx}")
-    # print(f"means: {means}")
-    # print(f"covs: {covs}")
-    # print(f"query_mean: {query_mean}")
-    # print(f"query_cov: {query_cov}")
-    # print(f"front_multiplier: {front_multiplier}")
-    # print(f"cross_cov: {cross_cov}")
-    # print(f"evidence_mean: {evidence_mean}")
-    # print(f"evidence_cov: {evidence_cov}")
-
     # Conditioning: Conditioning on the evidence to get the query distribution
     # Currently works both ways because it is a scalar
     if query_idx < evidence_idx:
         if isinstance(cross_cov, torch.Tensor):
-            cond_mean = query_mean + cross_cov @ torch.inverse(evidence_cov) @ (evidence[evidence_node] - evidence_mean)
+            cond_mean = query_mean + (evidence[evidence_node] - evidence_mean) @ (cross_cov @ torch.inverse(evidence_cov)).T
             cond_cov = query_cov - cross_cov @ torch.inverse(evidence_cov) @ cross_cov.T
         else:
             cond_mean = query_mean + cross_cov*(1./evidence_cov)*(evidence[evidence_node] - evidence_mean)
             cond_cov = query_cov - cross_cov * (1. / evidence_cov) * cross_cov
     else:
+        # TODO: this isn't correct, not sure what the actual equations should be though?
         cond_mean = query_mean
         cond_cov = query_cov
-
-    # print(all_coeffs)
-    # print(all_cov)
-    # c = [coeff[0] for coeff in all_coeffs[1:]]
-
-    # print(f"query_cov: {query_cov}, cross_cov: {cross_cov}, evidence_cov: {evidence_cov}")
-    # print(f"Numerator: {cross_cov ** 2}, should be: {(c[0] * c[1] * c[2]) ** 2 * all_cov[0] ** 2}")
-    # print(f"Denominator: {evidence_cov}, should be: {(c[0] * c[1] * c[2]) ** 2 * all_cov[0] + all_cov[3] + c[2]**2 * all_cov[2] + c[2]**2 * c[1]**2 * all_cov[1]}")
-    # print(cond_cov)
-    # print(f"cond_mean: {cond_mean}, cond_cov: {cond_cov}")
 
     return cond_mean, cond_cov
 
 def infer_from_posterior(mc, query_node, evidence_node, evidences):
     return mc.get_node(query_node).cpd.cond_fn([evidences])
 
-def infer_from_generative(mc, query_node, evidence_node, evidences):
-    mean, cov = compute_joint_linear(mc, query_node, evidence_node, evidences)
-    return GaussianDistribution(mean, cov)
-
 def kl_div_gaussian(true_mean, true_cov, mean, cov):
-    return torch.distributions.kl.kl_divergence(Normal(true_mean, true_cov ** 0.5), Normal(mean, cov ** 0.5))
+    if len(cov.shape) and cov.shape[-1] > 1:
+        return torch.distributions.kl.kl_divergence(MultivariateNormal(true_mean, true_cov), MultivariateNormal(mean, cov))
+    else:
+        return torch.distributions.kl.kl_divergence(Normal(true_mean, true_cov ** 0.5), Normal(mean, cov ** 0.5))
 
 def expected_kl_gaussian(true_mc, inferred_mc, query_node, evidence_node, 
                         true_func=compute_joint_linear, posterior_func=infer_from_posterior, num_samples=5000):
+    """
+    Given the true Gaussian posterior p(X|e) represented by `true_mc`, and the inferred posterior q(X|e) represented by `inferred_mc`,
+     returns the expected KL divergence between the two:
 
+     E_e~p(e)[KL(p(X|e) || q(X|e))]
+
+    The `true_func` and `posterior_func` are functions that take in a BayesNet, query node, evidence node, and evidence,
+     then return the true and learned posterior distributions respectively. These can be changed depending on the model;
+     for example, if your learned posterior is a generative model instead of a discriminative one, you should set posterior_func=compute_joint_linear.
+    """
     evidences = true_mc.sample_labeled(num_samples)[evidence_node]
 
     true_mean, true_cov = true_func(true_mc, query_node, evidence_node, evidences)

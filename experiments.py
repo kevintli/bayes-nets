@@ -12,39 +12,39 @@ from fitting import fit_MLE, fit_VI, reverse_KL_linear, variational_loss
 from inference import *
 from simple_markov_chain import SimpleMarkovChain
 
-def get_inference_results(mc, num_samples=10000):
+def get_inference_results(mc, dim=1, num_samples=10000):
     data = mc.sample_labeled(num_samples)
 
     print("Data shapes:", [d.shape for d in data.values()])
 
     # Generative
     fitted_mc = SimpleMarkovChain(mc.num_nodes)
-    fitted_mc.initialize_empty_cpds()
+    fitted_mc.initialize_empty_cpds(dim=dim)
     log_fn, plot_results = make_linear_log_fn(mc)
     fit_MLE(data, fitted_mc, log_fn=log_fn)
     plot_results(f"{num_samples}-linear-fit")
 
     # Jumpy generative (every other node)
-    jumpy = SimpleMarkovChain(mc.num_nodes, step=2)
-    jumpy.initialize_empty_cpds()
-    fit_MLE(data, jumpy, log_fn=log_fn)
+    # jumpy = SimpleMarkovChain(mc.num_nodes, step=2)
+    # jumpy.initialize_empty_cpds(dim=dim)
+    # fit_MLE(data, jumpy, log_fn=log_fn)
 
-    full_jump = SimpleMarkovChain(mc.num_nodes, step=mc.num_nodes-1)
-    full_jump.initialize_empty_cpds()
-    fit_MLE(data, full_jump, log_fn=log_fn)
+    # full_jump = SimpleMarkovChain(mc.num_nodes, step=mc.num_nodes-1)
+    # full_jump.initialize_empty_cpds(dim=dim)
+    # fit_MLE(data, full_jump, log_fn=log_fn)
 
     # Discriminative
     p_hat = DiscriminativeMarkovChain(mc.num_nodes)
-    p_hat.initialize_empty_cpds()
+    p_hat.initialize_empty_cpds(dim=dim)
     fit_MLE(data, p_hat, batch_size=min(32, num_samples // 5))
 
     # VI: using reverse KL from true posterior and the ELBO as two different losses
     q_ideal = DiscriminativeMarkovChain(mc.num_nodes)
-    q_ideal.initialize_empty_cpds()
-    fit_VI(data, mc, q_ideal, num_epochs=400, loss_fn=reverse_KL_linear, plot_name="reverse_kl_loss")
+    q_ideal.initialize_empty_cpds(dim=dim)
+    fit_VI(data, mc, q_ideal, num_epochs=800, loss_fn=reverse_KL_linear, plot_name="reverse_kl_loss")
 
     q = DiscriminativeMarkovChain(mc.num_nodes)
-    q.initialize_empty_cpds()
+    q.initialize_empty_cpds(dim=dim)
     fit_VI(data, mc, q, ideal_variational_mc=q_ideal, batch_size=min(32, num_samples // 5))
 
     # VI loss on the entire dataset of evidence
@@ -52,22 +52,22 @@ def get_inference_results(mc, num_samples=10000):
     q_full_loss = variational_loss(mc, q, f"X_{mc.num_nodes}", data[f"X_{mc.num_nodes}"])
     print(f"q loss: {q_full_loss}, ideal loss: {ideal_full_loss}")
 
-    return fitted_mc, jumpy, full_jump, p_hat, q
+    return fitted_mc, p_hat, q
 
 def make_linear_log_fn(true_mc):
     a_errs, b_errs, cov_errs = {}, {}, {}
 
     def log_fn(node_name, cond_fn):
-        a = cond_fn.weights[0].weight.squeeze()
-        b = cond_fn.weights[0].bias.squeeze()
-        cov = cond_fn.cov_matrix().item()
+        a = cond_fn.weights[0].weight
+        b = cond_fn.weights[0].bias
+        cov = cond_fn.cov_matrix()
 
         true_a, true_b = true_mc.parameters[node_name]["coeffs"]
         true_cov = true_mc.parameters[node_name]["cov"]
 
-        a_errs[node_name] = a_errs.get(node_name, []) + [abs(a - true_a)]
-        b_errs[node_name] = b_errs.get(node_name, []) + [abs(b - true_b)]
-        cov_errs[node_name] = cov_errs.get(node_name, []) + [abs(cov - true_cov)]
+        a_errs[node_name] = a_errs.get(node_name, []) + [torch.sum(abs(a - true_a))]
+        b_errs[node_name] = b_errs.get(node_name, []) + [torch.sum(abs(b - true_b))]
+        cov_errs[node_name] = cov_errs.get(node_name, []) + [torch.sum(abs(cov - true_cov))]
 
     def plot_results(prefix="linear-fit"):
         for node_name in a_errs:
@@ -82,6 +82,8 @@ def make_linear_log_fn(true_mc):
     return log_fn, plot_results
         
 def test_finite_samples(sample_amounts=[1000]):
+    dim = 1
+
     # Arbitrary length 5 chain
     # length = 5
     # true_mc = SimpleMarkovChain(5)
@@ -98,9 +100,19 @@ def test_finite_samples(sample_amounts=[1000]):
     # true_mc.specify_polynomial_cpds((0, 1), [(-1.5, 0.6)], [0.7])
 
     # Length 3 chain
-    length = 3
+    # length = 3
+    # true_mc = SimpleMarkovChain(length)
+    # true_mc.specify_polynomial_cpds((0, 1), [(1, 0), (1, 0)], [1, 1])
+
+    # Multivariate example
+    length = 2
+    dim = 2
     true_mc = SimpleMarkovChain(length)
-    true_mc.specify_polynomial_cpds((0, 1), [(1, 0), (1, 0)], [1, 1])
+    true_mc.specify_polynomial_cpds(
+        (torch.tensor([0, 2]).float(), torch.diag(torch.tensor([1, 0.4]))), 
+        [(torch.diag(torch.tensor([2., -1.])), torch.tensor([-3., 3.]))], 
+        [torch.diag(torch.tensor([2.2, 0.7]))]
+    )
 
     # Show distribution of evidence
     # evidence = true_mc.sample_labeled(1000)[f"X_{length}"]
@@ -120,7 +132,8 @@ def test_finite_samples(sample_amounts=[1000]):
         print(f"Trying sample size: {num_samples}")
 
         # Get p_hat using discriminative, q using VI
-        p_hat, jumpy, full_jump, disc_posterior, vi_posterior = get_inference_results(true_mc, num_samples)
+        # p_hat, jumpy, full_jump, disc_posterior, vi_posterior = get_inference_results(true_mc, num_samples)
+        p_hat, disc_posterior, vi_posterior = get_inference_results(true_mc, dim=dim, num_samples=num_samples)
 
         gen_kl = expected_kl_gaussian(true_mc, p_hat, "X_1", f"X_{length}", posterior_func=infer_from_generative)
         # jumpy_kl = expected_kl_gaussian(true_mc, jumpy, "X_1", f"X_{length}", posterior_func=infer_from_generative)
@@ -153,8 +166,8 @@ def test_finite_samples(sample_amounts=[1000]):
             print(f'Gen posterior: N({gen_weight} * X_{length} + {gen_bias}, {gen_cov})')
             # # print(f'Jumpy posterior: N({jumpy_weight} * X_{length} + {jumpy_bias}, {jumpy_cov})')
             # # print(f'Full jump posterior: N({full_jump_weight} * X_{length} + {full_jump_bias}, {full_jump_cov})')
-            print(f"Disc posterior: N({dif.weights[0].weight.item()} * X_{length} + {dif.weights[0].bias.item()}, {dif.cov_matrix().item()})")
-            print(f"VI posterior: N({vif.weights[0].weight.item()} * X_{length} + {vif.weights[0].bias.item()}, {vif.cov_matrix().item()})")
+            print(f"Disc posterior: N({dif.weights[0].weight} * X_{length} + {dif.weights[0].bias}, {dif.cov_matrix()})")
+            print(f"VI posterior: N({vif.weights[0].weight} * X_{length} + {vif.weights[0].bias}, {vif.cov_matrix()})")
                 
 
     # df = pd.DataFrame(np.c_[gen_results, jumpy_results, full_jump_results, disc_results, vi_results], columns=["Generative", "Jumpy (step=2)", "Full jump", "Discriminative", "VI"], index=sample_amounts)
